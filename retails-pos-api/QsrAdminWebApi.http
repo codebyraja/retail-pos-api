@@ -1,0 +1,6 @@
+@QsrAdminWebApi_HostAddress = http://localhost:5020
+
+GET {{QsrAdminWebApi_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
