@@ -45,9 +45,9 @@ namespace RetailPosController.Controllers
         }
 
         [HttpPost]
-        public async Task<IActionResult> SaveMaster(Master1 obj)
+        public async Task<IActionResult> SaveMaster([FromForm] Master1 obj, IFormFile image)
         {
-            return Ok(await _services.SaveMasterAsync(obj));
+            return Ok(await _services.SaveMasterAsync(obj, image));
         }
 
         [HttpGet]
@@ -59,20 +59,20 @@ namespace RetailPosController.Controllers
         [HttpPost]
         public async Task<IActionResult> SaveItem(ItemSaveDto model)
         {
-            var itemResult = await _services.SaveMasterAsync(model.Item);
+            //var itemResult = await _services.SaveMasterAsync(model.Item);
 
-            if (itemResult.Status != 1)
-                return Ok(itemResult);
+            //if (itemResult.Status != 1)
+            //    return Ok(itemResult);
 
-            int itemCode = itemResult.Code;
+            //int itemCode = itemResult.Code;
 
-            if (model.Variants != null && model.Variants.Count > 0)
-            {
-                foreach (var v in model.Variants)
-                {
-                    await _services.SaveVariantAsync(itemCode, v);
-                }
-            }
+            //if (model.Variants != null && model.Variants.Count > 0)
+            //{
+            //    foreach (var v in model.Variants)
+            //    {
+            //        await _services.SaveVariantAsync(itemCode, v);
+            //    }
+            //}
 
             return Ok(new { Status = 1, Msg = "Item Saved Successfully" });
         }

@@ -25,8 +25,8 @@ namespace Master.Models
         public decimal D4 { get; set; } = 0;
         public decimal D5 { get; set; } = 0;
         public string? Remark { get; set; } = string.Empty;
-        public bool BlockedMaster { get; set; } = false;
-        public bool DeactiveMaster { get; set; } = false;
+        public bool Blocked { get; set; } = false;
+        public bool Status { get; set; } = true; // 1 Active 2 Deactive
         public string? Image { get; set; } = string.Empty;
         public string? CreatedBy { get; set; } = string.Empty;
         public DateTime? CreationTime { get; set; } = DateTime.Now;

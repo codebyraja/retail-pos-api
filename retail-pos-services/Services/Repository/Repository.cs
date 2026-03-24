@@ -289,24 +289,19 @@ namespace RetailPosRepository.Services.Repository
         }
 
 
-        public async Task<Response> SaveMasterAsync(Master1 master)
+        public async Task<Response> SaveMasterAsync(Master1 master, IFormFile image)
         {
             try
             {
-                //if (!string.IsNullOrEmpty(master.Image))
-                //{
-                //    var base64Data = master.Image.Split(',')[1];
+                string folders = master.MasterType == 4 ? "subcategory" 
+                    : master.MasterType == 5 ?  "categories" 
+                    : master.MasterType == 5 ? "product" : "";
 
-                //    byte[] bytes = Convert.FromBase64String(base64Data);
-
-                //    string fileName = Guid.NewGuid() + ".png";
-
-                //    string path = Path.Combine("wwwroot/uploads", fileName);
-
-                //    File.WriteAllBytes(path, bytes);
-
-                //    master.Image = "/uploads/" + fileName;
-                //}
+                // 🔥 Image save
+                if (image != null)
+                {
+                    master.Image = await FileUploadHelper.SaveFileAsync(image, Directory.GetCurrentDirectory(), folders, master.Name);
+                }
 
                 string users = master.Code == 0 ? master.CreatedBy ?? "SYSTEM" : master.ModifiedBy ?? "SYSTEM";
 
@@ -328,8 +323,8 @@ namespace RetailPosRepository.Services.Repository
                 SqlParameter param15 = new SqlParameter("@p15", master.D4);
                 SqlParameter param16 = new SqlParameter("@p16", master.D5);
                 SqlParameter param17 = new SqlParameter("@p17", master.Remark);
-                SqlParameter param18 = new SqlParameter("@p18", master.BlockedMaster);
-                SqlParameter param19 = new SqlParameter("@p19", master.DeactiveMaster);
+                SqlParameter param18 = new SqlParameter("@p18", master.Blocked);
+                SqlParameter param19 = new SqlParameter("@p19", master.Status ? 0 : 1);
                 SqlParameter param20 = new SqlParameter("@p20", master.Image);
                 SqlParameter param21 = new SqlParameter("@p21", users);
 
@@ -370,6 +365,7 @@ namespace RetailPosRepository.Services.Repository
                 return new Response { Status = 0, Msg = ex.Message.ToString() };
             }
         }
+
         public async Task SaveVariantAsync(int itemCode, ItemVariantDto variant)
         {
             SqlParameter p1 = new SqlParameter("@ItemCode", itemCode);
@@ -384,7 +380,7 @@ namespace RetailPosRepository.Services.Repository
         {
             try
             {
-                string sql = "Select ISNULL(Code, 0) as Code, ISNULL(MasterType, 0) as MasterType, ISNULL([Name], '') as Name, ISNULL(Alias, '') as Alias, ISNULL(PrintName, '') as PrintName, ISNULL(ParentGrp, 0) as ParentGrp, ISNULL(HSNCode, '') as HSNCode, ISNULL(CM1, 0) as CM1, ISNULL(CM2, 0) as CM2, ISNULL(CM3, 0) as CM3, ISNULL(CM4, 0) as CM4, ISNULL(CM5, 0) as CM5, ISNULL(D1, 0) as D1, ISNULL(D2, 0) as D2, ISNULL(D3, 0) as D3, ISNULL(D4, 0) as D4, ISNULL(D5, 0) as D5, ISNULL(Remark, '') as Remark, ISNULL(BlockedMaster, 0) as BlockedMaster, ISNULL(DeactiveMaster, 0) as DeactiveMaster, ISNULL(Image, '') as Image, ISNULL(CreatedBy, '') as CreatedBy, ISNULL(CreationTime, '') as CreationTime, ISNULL(ModifiedBy, '') ModifiedBy, ISNULL(ModificationTime, '') as ModificationTime from Master1 where MasterType = @masterType";
+                string sql = "Select ISNULL(Code, 0) as Code, ISNULL(MasterType, 0) as MasterType, ISNULL([Name], '') as Name, ISNULL(Alias, '') as Alias, ISNULL(PrintName, '') as PrintName, ISNULL(ParentGrp, 0) as ParentGrp, ISNULL(HSNCode, '') as HSNCode, ISNULL(CM1, 0) as CM1, ISNULL(CM2, 0) as CM2, ISNULL(CM3, 0) as CM3, ISNULL(CM4, 0) as CM4, ISNULL(CM5, 0) as CM5, ISNULL(D1, 0) as D1, ISNULL(D2, 0) as D2, ISNULL(D3, 0) as D3, ISNULL(D4, 0) as D4, ISNULL(D5, 0) as D5, ISNULL(Remark, '') as Remark, ISNULL(BlockedMaster, 0) as Blocked, ISNULL(DeactiveMaster, 0) as Status, ISNULL(Image, '') as Image, ISNULL(CreatedBy, '') as CreatedBy, ISNULL(CreationTime, '') as CreationTime, ISNULL(ModifiedBy, '') ModifiedBy, ISNULL(ModificationTime, '') as ModificationTime from Master1 where MasterType = @masterType";
                 var DT1 = await _db.Masters.FromSqlRaw(sql, new SqlParameter("@masterType", masterType)).ToListAsync();
                 //where MasterType = @masterType and(@code = 0 or Code = @code) and(@name is null or Name like '%' + @name + '%')
                 //var DT1 = await _db.Masters.FromSqlRaw(sql, new SqlParameter("@masterType", masterType), new SqlParameter("@code", code), new SqlParameter("@name", name ?? (object)DBNull.Value)).ToListAsync();
