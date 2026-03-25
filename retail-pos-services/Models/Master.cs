@@ -24,6 +24,11 @@ namespace Master.Models
         public decimal D3 { get; set; } = 0;
         public decimal D4 { get; set; } = 0;
         public decimal D5 { get; set; } = 0;
+        public string C1 { get; set; } = string.Empty;
+        public string C2 { get; set; } = string.Empty;
+        public string C3 { get; set; } = string.Empty;
+        public string C4 { get; set; } = string.Empty;
+        public string C5 { get; set; } = string.Empty;
         public string? Remark { get; set; } = string.Empty;
         public bool Blocked { get; set; } = false;
         public bool Status { get; set; } = true; // 1 Active 2 Deactive
@@ -54,7 +59,9 @@ namespace Master.Models
         public decimal D3 { get; set; } = 0;
         public decimal D4 { get; set; } = 0;
         public decimal D5 { get; set; } = 0;
+        public string Values { get; set; } = string.Empty;
         public string? Remark { get; set; } = string.Empty;
+        public int NoOfProducts { get; set; } = 0;
         public bool Blocked { get; set; } = false;
         public bool Deactive { get; set; } = false; // 1 Active 2 Deactive
         public string? Image { get; set; } = string.Empty;

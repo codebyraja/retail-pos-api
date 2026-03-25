@@ -325,13 +325,18 @@ namespace RetailPosRepository.Services.Repository
                 SqlParameter param14 = new SqlParameter("@p14", master.D3);
                 SqlParameter param15 = new SqlParameter("@p15", master.D4);
                 SqlParameter param16 = new SqlParameter("@p16", master.D5);
-                SqlParameter param17 = new SqlParameter("@p17", master.Remark);
-                SqlParameter param18 = new SqlParameter("@p18", master.Blocked);
-                SqlParameter param19 = new SqlParameter("@p19", master.Status ? 0 : 1);
-                SqlParameter param20 = new SqlParameter("@p20", string.IsNullOrEmpty(master.Image) ? "" : master.Image);
-                SqlParameter param21 = new SqlParameter("@p21", users);
+                SqlParameter param17 = new SqlParameter("@p17", master.C1);
+                SqlParameter param18 = new SqlParameter("@p18", master.C2);
+                SqlParameter param19 = new SqlParameter("@p19", master.C3);
+                SqlParameter param20 = new SqlParameter("@p20", master.C4);
+                SqlParameter param21 = new SqlParameter("@p21", master.C5);
+                SqlParameter param22 = new SqlParameter("@p22", master.Remark);
+                SqlParameter param23 = new SqlParameter("@p23", master.Blocked);
+                SqlParameter param24 = new SqlParameter("@p24", master.Status ? 0 : 1);
+                SqlParameter param25 = new SqlParameter("@p25", string.IsNullOrEmpty(master.Image) ? "" : master.Image);
+                SqlParameter param26 = new SqlParameter("@p26", users);
 
-                var result = await _db.Responses.FromSqlRaw("EXEC dbo.[sp_SaveMaster] @p0, @p1, @p2, @p3, @p4, @p5, @p6, @p7, @p8, @p9, @p10, @p11, @p12, @p13, @p14, @p15, @p16, @p17, @p18, @p19, @p20, @p21", param0, param1, param2, param3, param4, param5, param6, param7, param8, param9, param10, param11, param12, param13, param14, param15, param16, param17, param18, param19, param20, param21).ToListAsync();
+                var result = await _db.Responses.FromSqlRaw("EXEC dbo.[sp_SaveMaster] @p0, @p1, @p2, @p3, @p4, @p5, @p6, @p7, @p8, @p9, @p10, @p11, @p12, @p13, @p14, @p15, @p16, @p17, @p18, @p19, @p20, @p21, @p22, @p23, @p24, @p25, @p26", param0, param1, param2, param3, param4, param5, param6, param7, param8, param9, param10, param11, param12, param13, param14, param15, param16, param17, param18, param19, param20, param21, param22, param23, param24, param25, param26).ToListAsync();
 
                 //.ContinueWith(t =>
                 //{
@@ -386,7 +391,7 @@ namespace RetailPosRepository.Services.Repository
                 var request = _httpContextAccessor?.HttpContext?.Request;
                 var baseUrl = Helper.GetBaseUrl(request);
 
-                string sql = "Select ISNULL(A.[Code], 0) as Code, ISNULL(A.[MasterType], 0) as MasterType, ISNULL(A.[Name], '') as Name, ISNULL(A.[Alias], '') as Alias, ISNULL(A.[PrintName], '') as PrintName, ISNULL(A.[ParentGrp], 0) as ParentGrpCode, ISNULL(M1.[Name], '') as ParentGrpName, ISNULL(A.[HSNCode], '') as HSNCode, ISNULL(A.[CM1], 0) as CM1, ISNULL(A.[CM2], 0) as CM2, ISNULL(A.[CM3], 0) as CM3, ISNULL(A.[CM4], 0) as CM4, ISNULL(A.[CM5], 0) as CM5, ISNULL(A.[D1], 0) as D1, ISNULL(A.[D2], 0) as D2, ISNULL(A.[D3], 0) as D3, ISNULL(A.[D4], 0) as D4, ISNULL(A.[D5], 0) as D5, ISNULL(A.[Remark], '') as Remark, ISNULL(A.[BlockedMaster], 0) as Blocked, ISNULL(A.[DeactiveMaster], 0) as Deactive, ISNULL(A.[Image], '') as Image, ISNULL(A.[CreatedBy], '') as CreatedBy, ISNULL(A.[CreationTime], '') as CreatedOn, ISNULL(A.[ModifiedBy], '') ModifiedBy, ISNULL(A.[ModificationTime], '') as ModifiedOn from Master1 A LEFT JOIN Master1 M1 ON A.ParentGrp = M1.Code Where A.[MasterType] = @masterType Order By A.[Name]";
+                string sql = "Select ISNULL(A.[Code], 0) as Code, ISNULL(A.[MasterType], 0) as MasterType, ISNULL(A.[Name], '') as Name, ISNULL(A.[Alias], '') as Alias, ISNULL(A.[PrintName], '') as PrintName, ISNULL(A.[ParentGrp], 0) as ParentGrpCode, ISNULL(M1.[Name], '') as ParentGrpName, ISNULL(A.[HSNCode], '') as HSNCode, ISNULL(A.[CM1], 0) as CM1, ISNULL(A.[CM2], 0) as CM2, ISNULL(A.[CM3], 0) as CM3, ISNULL(A.[CM4], 0) as CM4, ISNULL(A.[CM5], 0) as CM5, ISNULL(A.[D1], 0) as D1, ISNULL(A.[D2], 0) as D2, ISNULL(A.[D3], 0) as D3, ISNULL(A.[D4], 0) as D4, ISNULL(A.[D5], 0) as D5, ISNULL(STRING_AGG(V.[Value], ','), '') as [Values], ISNULL(A.[Remark], '') as Remark, 10 as NoOfProducts, ISNULL(A.[BlockedMaster], 0) as Blocked, ISNULL(A.[DeactiveMaster], 0) as Deactive, ISNULL(A.[Image], '') as Image, ISNULL(A.[CreatedBy], '') as CreatedBy, ISNULL(A.[CreationTime], '') as CreatedOn, ISNULL(A.[ModifiedBy], '') ModifiedBy, ISNULL(A.[ModificationTime], '') as ModifiedOn from Master1 A LEFT JOIN Master1 M1 ON A.ParentGrp = M1.Code LEFT JOIN VariantValues V ON V.VariantId = A.Code Where A.[MasterType] = @masterType GROUP BY A.Code, A.MasterType, A.Name, A.Alias, A.PrintName, A.ParentGrp, M1.Name, A.HSNCode, A.[CM1], A.[CM2], A.[CM3], A.[CM4], A.[CM5], A.[D1], A.[D2], A.[D3], A.[D4],A.[D5], A.Remark, A.BlockedMaster, A.DeactiveMaster, A.Image, A.CreatedBy, A.CreationTime, A.ModifiedBy, A.ModificationTime Order By A.[Name]";
                 var DT1 = await _db.Masters2.FromSqlRaw(sql, new SqlParameter("@masterType", masterType)).ToListAsync();
                 //where MasterType = @masterType and(@code = 0 or Code = @code) and(@name is null or Name like '%' + @name + '%')
                 //var DT1 = await _db.Masters.FromSqlRaw(sql, new SqlParameter("@masterType", masterType), new SqlParameter("@code", code), new SqlParameter("@name", name ?? (object)DBNull.Value)).ToListAsync();
@@ -415,6 +420,7 @@ namespace RetailPosRepository.Services.Repository
                 return new { Status = 0, Msg = ex.Message.ToString() };
             }
         }
+
         public async Task<Response> SaveAddonAsync(Addon addon)
         {
             try
