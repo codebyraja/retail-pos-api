@@ -294,14 +294,17 @@ namespace RetailPosRepository.Services.Repository
             try
             {
                 string folders = master.MasterType == 4 ? "subcategory" 
-                    : master.MasterType == 5 ?  "categories" 
-                    : master.MasterType == 5 ? "product" : "";
+                    : master.MasterType == 5 ? "categories" 
+                    : master.MasterType == 6 ? "product" 
+                    : master.MasterType == 7 ? "brand" 
+                    : master.MasterType == 8 ? "unit" : "";
 
                 // 🔥 Image save
                 if (image != null)
-                {
                     master.Image = await FileUploadHelper.SaveFileAsync(image, Directory.GetCurrentDirectory(), folders, master.Name);
-                }
+                else
+                    master.Image = "";
+                
 
                 string users = master.Code == 0 ? master.CreatedBy ?? "SYSTEM" : master.ModifiedBy ?? "SYSTEM";
 
@@ -325,7 +328,7 @@ namespace RetailPosRepository.Services.Repository
                 SqlParameter param17 = new SqlParameter("@p17", master.Remark);
                 SqlParameter param18 = new SqlParameter("@p18", master.Blocked);
                 SqlParameter param19 = new SqlParameter("@p19", master.Status ? 0 : 1);
-                SqlParameter param20 = new SqlParameter("@p20", master.Image);
+                SqlParameter param20 = new SqlParameter("@p20", string.IsNullOrEmpty(master.Image) ? "" : master.Image);
                 SqlParameter param21 = new SqlParameter("@p21", users);
 
                 var result = await _db.Responses.FromSqlRaw("EXEC dbo.[sp_SaveMaster] @p0, @p1, @p2, @p3, @p4, @p5, @p6, @p7, @p8, @p9, @p10, @p11, @p12, @p13, @p14, @p15, @p16, @p17, @p18, @p19, @p20, @p21", param0, param1, param2, param3, param4, param5, param6, param7, param8, param9, param10, param11, param12, param13, param14, param15, param16, param17, param18, param19, param20, param21).ToListAsync();
@@ -380,14 +383,29 @@ namespace RetailPosRepository.Services.Repository
         {
             try
             {
-                string sql = "Select ISNULL(Code, 0) as Code, ISNULL(MasterType, 0) as MasterType, ISNULL([Name], '') as Name, ISNULL(Alias, '') as Alias, ISNULL(PrintName, '') as PrintName, ISNULL(ParentGrp, 0) as ParentGrp, ISNULL(HSNCode, '') as HSNCode, ISNULL(CM1, 0) as CM1, ISNULL(CM2, 0) as CM2, ISNULL(CM3, 0) as CM3, ISNULL(CM4, 0) as CM4, ISNULL(CM5, 0) as CM5, ISNULL(D1, 0) as D1, ISNULL(D2, 0) as D2, ISNULL(D3, 0) as D3, ISNULL(D4, 0) as D4, ISNULL(D5, 0) as D5, ISNULL(Remark, '') as Remark, ISNULL(BlockedMaster, 0) as Blocked, ISNULL(DeactiveMaster, 0) as Status, ISNULL(Image, '') as Image, ISNULL(CreatedBy, '') as CreatedBy, ISNULL(CreationTime, '') as CreationTime, ISNULL(ModifiedBy, '') ModifiedBy, ISNULL(ModificationTime, '') as ModificationTime from Master1 where MasterType = @masterType";
-                var DT1 = await _db.Masters.FromSqlRaw(sql, new SqlParameter("@masterType", masterType)).ToListAsync();
+                var request = _httpContextAccessor?.HttpContext?.Request;
+                var baseUrl = Helper.GetBaseUrl(request);
+
+                string sql = "Select ISNULL(A.[Code], 0) as Code, ISNULL(A.[MasterType], 0) as MasterType, ISNULL(A.[Name], '') as Name, ISNULL(A.[Alias], '') as Alias, ISNULL(A.[PrintName], '') as PrintName, ISNULL(A.[ParentGrp], 0) as ParentGrpCode, ISNULL(M1.[Name], '') as ParentGrpName, ISNULL(A.[HSNCode], '') as HSNCode, ISNULL(A.[CM1], 0) as CM1, ISNULL(A.[CM2], 0) as CM2, ISNULL(A.[CM3], 0) as CM3, ISNULL(A.[CM4], 0) as CM4, ISNULL(A.[CM5], 0) as CM5, ISNULL(A.[D1], 0) as D1, ISNULL(A.[D2], 0) as D2, ISNULL(A.[D3], 0) as D3, ISNULL(A.[D4], 0) as D4, ISNULL(A.[D5], 0) as D5, ISNULL(A.[Remark], '') as Remark, ISNULL(A.[BlockedMaster], 0) as Blocked, ISNULL(A.[DeactiveMaster], 0) as Deactive, ISNULL(A.[Image], '') as Image, ISNULL(A.[CreatedBy], '') as CreatedBy, ISNULL(A.[CreationTime], '') as CreatedOn, ISNULL(A.[ModifiedBy], '') ModifiedBy, ISNULL(A.[ModificationTime], '') as ModifiedOn from Master1 A LEFT JOIN Master1 M1 ON A.ParentGrp = M1.Code Where A.[MasterType] = @masterType Order By A.[Name]";
+                var DT1 = await _db.Masters2.FromSqlRaw(sql, new SqlParameter("@masterType", masterType)).ToListAsync();
                 //where MasterType = @masterType and(@code = 0 or Code = @code) and(@name is null or Name like '%' + @name + '%')
                 //var DT1 = await _db.Masters.FromSqlRaw(sql, new SqlParameter("@masterType", masterType), new SqlParameter("@code", code), new SqlParameter("@name", name ?? (object)DBNull.Value)).ToListAsync();
 
                 if (DT1 == null || DT1.Count == 0)
                 {
                     return new { Status = 0, Msg = "No masters found." };
+                }
+
+                foreach (var item in DT1)
+                {
+                    if (!string.IsNullOrEmpty(item.Image))
+                    {
+                        item.Image = baseUrl + item.Image;
+                    }
+                    else
+                    {
+                        item.Image = "https://tse1.mm.bing.net/th/id/OIP.1bN_NV0O39xEAR7gjO8MgwHaIM?rs=1&pid=ImgDetMain&o=7&rm=3";
+                    }
                 }
 
                 return new { Status = 1, Msg = "Masters retrieved successfully.", Data = DT1 };

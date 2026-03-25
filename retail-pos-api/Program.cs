@@ -126,7 +126,7 @@ app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
 
-// // Static files from wwwroot 
+// Static files from wwwroot 
 app.UseStaticFiles();
 
 // SignalR Hubs
@@ -134,5 +134,4 @@ app.MapHub<PaymentsHub>("/hubs/payments");
 
 // Controllers
 app.MapControllers();
-
 app.Run();

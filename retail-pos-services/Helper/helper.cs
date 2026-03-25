@@ -7,6 +7,11 @@ namespace QSRHelperApiServices.Helper
 {
     public class Helper
     {
+        public static string GetBaseUrl(HttpRequest request)
+        {
+            return $"{request.Scheme}://{request.Host}";
+        }
+
         public dynamic GenerateSku()
         {
             // Example: SKU-20250526-AB12

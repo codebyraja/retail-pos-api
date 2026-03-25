@@ -17,7 +17,7 @@ public static class FileUploadHelper
         var fileName = $"{cleanName}_{Guid.NewGuid()}{extension}";
 
         // 🔹 Folder path
-        var folderPath = Path.Combine(rootPath, "uploads", folderName);
+        var folderPath = Path.Combine(rootPath, "wwwroot", "uploads", folderName);
 
         if (!Directory.Exists(folderPath))
         {

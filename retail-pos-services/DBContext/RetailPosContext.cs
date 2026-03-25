@@ -17,7 +17,9 @@ public partial class RetailPosDBContext : DbContext
 {
     public RetailPosDBContext(DbContextOptions<RetailPosDBContext> options) : base(options){ }
     public virtual DbSet<Response> Responses { get; set; }
-    public virtual DbSet<Master1> Masters { get; set; }
+    public virtual DbSet<Master1> Masters1 { get; set; }
+    public virtual DbSet<Master2> Masters2 { get; set; }
+
     public virtual DbSet<Addon> Addons { get; set; }
     public virtual DbSet<AddonList> AddonLists { get; set; }
     public virtual DbSet<RestaurantTable> RestaurantTables { get; set; }
@@ -76,6 +78,7 @@ public partial class RetailPosDBContext : DbContext
         modelBuilder.Entity<Response>(entity => entity.HasNoKey());
         modelBuilder.Entity<Response>(entity => entity.HasNoKey());
         modelBuilder.Entity<Master1>(entity => entity.HasNoKey());
+        modelBuilder.Entity<Master2>(entity => entity.HasNoKey());
         modelBuilder.Entity<Addon>(entity => entity.HasNoKey());
         modelBuilder.Entity<AddonList>(entity => entity.HasNoKey());
         modelBuilder.Entity<RestaurantTable>(entity => entity.HasNoKey());

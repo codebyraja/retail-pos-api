@@ -34,6 +34,36 @@ namespace Master.Models
         public DateTime? ModificationTime { get; set; } = DateTime.Now;
     }
 
+    public partial class Master2
+    {
+        public int Code { get; set; } = 0;
+        public short MasterType { get; set; } = 0;
+        public string? Name { get; set; } = string.Empty;
+        public string? Alias { get; set; } = string.Empty;
+        public string? PrintName { get; set; } = string.Empty;
+        public int ParentGrpCode { get; set; } = 0;
+        public string ParentGrpName { get; set; } = string.Empty;
+        public string? HSNCode { get; set; } = string.Empty;
+        public int CM1 { get; set; } = 0;
+        public int CM2 { get; set; } = 0;
+        public int CM3 { get; set; } = 0;
+        public int CM4 { get; set; } = 0;
+        public int CM5 { get; set; } = 0;
+        public decimal D1 { get; set; } = 0;
+        public decimal D2 { get; set; } = 0;
+        public decimal D3 { get; set; } = 0;
+        public decimal D4 { get; set; } = 0;
+        public decimal D5 { get; set; } = 0;
+        public string? Remark { get; set; } = string.Empty;
+        public bool Blocked { get; set; } = false;
+        public bool Deactive { get; set; } = false; // 1 Active 2 Deactive
+        public string? Image { get; set; } = string.Empty;
+        public string? CreatedBy { get; set; } = string.Empty;
+        public DateTime? CreatedOn { get; set; } = DateTime.Now;
+        public string? ModifiedBy { get; set; } = string.Empty;
+        public DateTime? ModifiedOn { get; set; } = DateTime.Now;
+    }
+
     public class ItemSaveDto
     {
         public Master1? Item { get; set; }

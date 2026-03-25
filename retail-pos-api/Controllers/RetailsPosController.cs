@@ -45,9 +45,9 @@ namespace RetailPosController.Controllers
         }
 
         [HttpPost]
-        public async Task<IActionResult> SaveMaster([FromForm] Master1 obj, IFormFile image)
+        public async Task<IActionResult> SaveMaster([FromForm] Master1 master, IFormFile? image)
         {
-            return Ok(await _services.SaveMasterAsync(obj, image));
+            return Ok(await _services.SaveMasterAsync(master, image));
         }
 
         [HttpGet]
