@@ -2,7 +2,7 @@
 using System.Text;
 using System.Text.Json;
 
-namespace QsrAdminWebApi.Licensing;
+namespace RetailPos.Licensing;
 
 public static class LicenseCrypto
 {

@@ -56,6 +56,12 @@ namespace RetailPosController.Controllers
             return Ok(await _services.GetMasterAsync(tranType, masterType, code, name));
         }
 
+        [HttpGet]
+        public async Task<IActionResult> Master(int masterType)
+        {
+            return Ok(await _services.GetMasterListAsync(masterType));
+        }
+
         [HttpPost]
         public async Task<IActionResult> SaveItem(ItemSaveDto model)
         {

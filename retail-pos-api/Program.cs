@@ -3,12 +3,11 @@ using EasebuzzPayment.Services.V2;
 using LocationRepository.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
 using Payments.RealTime;
-using QsrAdminWebApi.Licensing;
 using QSRAPIServices.Models;
 using Razorpay.Models;
+using RetailPos.Licensing;
 using RetailPosContext.DBContext;
 using RetailPosEmail.Services.Email;
 using RetailPosRepository.Services.Repository;
@@ -106,7 +105,7 @@ builder.Services.AddCors(opt =>
 var app = builder.Build();
 
 // LICENSE CHECK – SABSE PEHLE
-app.UseMiddleware<LicenseMiddleware>();
+//app.UseMiddleware<LicenseMiddleware>();
 
 // Dev tools
 if (app.Environment.IsDevelopment())

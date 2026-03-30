@@ -14,6 +14,7 @@ namespace RetailPosRepository.Services.Repository
     {
         Task<dynamic> ValidateUserAsync(string username, string password);
         Task<Response> SaveMasterAsync(Master1 master, IFormFile image);
+        Task<dynamic> GetMasterListAsync(int masterType);
         Task<dynamic> GetMasterAsync(int tranType, int masterType, int code, string? name);
         Task SaveVariantAsync(int itemCode, ItemVariantDto v);
         //Task<dynamic> GetVariantAsync(int itemCode);

@@ -1,4 +1,4 @@
-﻿namespace QsrAdminWebApi.Licensing;
+﻿namespace RetailPos.Licensing;
 
 public class LicenseService
 {

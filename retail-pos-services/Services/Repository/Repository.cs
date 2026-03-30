@@ -374,6 +374,26 @@ namespace RetailPosRepository.Services.Repository
             }
         }
 
+        public async Task<dynamic> GetMasterListAsync(int masterType)
+        {
+            var list = new List<MasterList>();
+            try
+            {
+                string sql = $"Select ISNULL([Code], 0) as Code, ISNULL(A.[Name], '') as Name, ISNULL(A.[ParentGrp], 0) as [ParentGrpCode] From Master1 A Where A.[MasterType] = {masterType} Group by A.[Code], A.[Name], A.[ParentGrp] Order By A.[Name]";
+                list = await _db.MasterLists.FromSqlRaw(sql, masterType).ToListAsync();
+
+                if (list == null || list.Count == 0)
+                {
+                    return new { Status = 0, Msg = "No masters found." };
+                }
+            } 
+            catch (Exception ex) 
+            {
+                return new { Status = 0, Msg = ex.Message.ToString() };
+            }
+            return new { Status = 1, Msg = "Success", Data = list };
+        }
+
         public async Task SaveVariantAsync(int itemCode, ItemVariantDto variant)
         {
             SqlParameter p1 = new SqlParameter("@ItemCode", itemCode);
@@ -391,7 +411,7 @@ namespace RetailPosRepository.Services.Repository
                 var request = _httpContextAccessor?.HttpContext?.Request;
                 var baseUrl = Helper.GetBaseUrl(request);
 
-                string sql = "Select ISNULL(A.[Code], 0) as Code, ISNULL(A.[MasterType], 0) as MasterType, ISNULL(A.[Name], '') as Name, ISNULL(A.[Alias], '') as Alias, ISNULL(A.[PrintName], '') as PrintName, ISNULL(A.[ParentGrp], 0) as ParentGrpCode, ISNULL(M1.[Name], '') as ParentGrpName, ISNULL(A.[HSNCode], '') as HSNCode, ISNULL(A.[CM1], 0) as CM1, ISNULL(A.[CM2], 0) as CM2, ISNULL(A.[CM3], 0) as CM3, ISNULL(A.[CM4], 0) as CM4, ISNULL(A.[CM5], 0) as CM5, ISNULL(A.[D1], 0) as D1, ISNULL(A.[D2], 0) as D2, ISNULL(A.[D3], 0) as D3, ISNULL(A.[D4], 0) as D4, ISNULL(A.[D5], 0) as D5, ISNULL(STRING_AGG(V.[Value], ','), '') as [Values], ISNULL(A.[Remark], '') as Remark, 10 as NoOfProducts, ISNULL(A.[BlockedMaster], 0) as Blocked, ISNULL(A.[DeactiveMaster], 0) as Deactive, ISNULL(A.[Image], '') as Image, ISNULL(A.[CreatedBy], '') as CreatedBy, ISNULL(A.[CreationTime], '') as CreatedOn, ISNULL(A.[ModifiedBy], '') ModifiedBy, ISNULL(A.[ModificationTime], '') as ModifiedOn from Master1 A LEFT JOIN Master1 M1 ON A.ParentGrp = M1.Code LEFT JOIN VariantValues V ON V.VariantId = A.Code Where A.[MasterType] = @masterType GROUP BY A.Code, A.MasterType, A.Name, A.Alias, A.PrintName, A.ParentGrp, M1.Name, A.HSNCode, A.[CM1], A.[CM2], A.[CM3], A.[CM4], A.[CM5], A.[D1], A.[D2], A.[D3], A.[D4],A.[D5], A.Remark, A.BlockedMaster, A.DeactiveMaster, A.Image, A.CreatedBy, A.CreationTime, A.ModifiedBy, A.ModificationTime Order By A.[Name]";
+                string sql = "Select ISNULL(A.[Code], 0) as Code, ISNULL(A.[MasterType], 0) as MasterType, ISNULL(A.[Name], '') as Name, ISNULL(A.[Alias], '') as Alias, ISNULL(A.[PrintName], '') as PrintName, ISNULL(A.[ParentGrp], 0) as ParentGrpCode, ISNULL(M1.[Name], '') as ParentGrpName, ISNULL(A.[HSNCode], '') as HSNCode, ISNULL(A.[CM1], 0) as CM1, ISNULL(A.[CM2], 0) as CM2, ISNULL(A.[CM3], 0) as CM3, ISNULL(A.[CM4], 0) as CM4, ISNULL(A.[CM5], 0) as CM5, ISNULL(A.[D1], 0) as D1, ISNULL(A.[D2], 0) as D2, ISNULL(A.[D3], 0) as D3, ISNULL(A.[D4], 0) as D4, ISNULL(A.[D5], 0) as D5, ISNULL(A.[C1], '') as C1, ISNULL(A.[C2], '') as C2, ISNULL(A.[C3], '') as C3, ISNULL(A.[C4], '') as C4, ISNULL(A.[C5], '') as C5, ISNULL(STRING_AGG(V.[Value], ','), '') as [Values], ISNULL(A.[Remark], '') as Remark, 10 as NoOfProducts, ISNULL(A.[BlockedMaster], 0) as Blocked, ISNULL(A.[DeactiveMaster], 0) as Deactive, ISNULL(A.[Image], '') as Image, ISNULL(A.[CreatedBy], '') as CreatedBy, ISNULL(A.[CreationTime], '') as CreatedOn, ISNULL(A.[ModifiedBy], '') ModifiedBy, ISNULL(A.[ModificationTime], '') as ModifiedOn from Master1 A LEFT JOIN Master1 M1 ON A.ParentGrp = M1.Code LEFT JOIN VariantValues V ON V.VariantId = A.Code Where A.[MasterType] = @masterType GROUP BY A.Code, A.MasterType, A.Name, A.Alias, A.PrintName, A.ParentGrp, M1.Name, A.HSNCode, A.[CM1], A.[CM2], A.[CM3], A.[CM4], A.[CM5], A.[D1], A.[D2], A.[D3], A.[D4], A.[D5], A.[C1], A.[C2], A.[C3], A.[C4], A.[C5], A.Remark, A.BlockedMaster, A.DeactiveMaster, A.Image, A.CreatedBy, A.CreationTime, A.ModifiedBy, A.ModificationTime Order By A.[Name]";
                 var DT1 = await _db.Masters2.FromSqlRaw(sql, new SqlParameter("@masterType", masterType)).ToListAsync();
                 //where MasterType = @masterType and(@code = 0 or Code = @code) and(@name is null or Name like '%' + @name + '%')
                 //var DT1 = await _db.Masters.FromSqlRaw(sql, new SqlParameter("@masterType", masterType), new SqlParameter("@code", code), new SqlParameter("@name", name ?? (object)DBNull.Value)).ToListAsync();
@@ -2133,6 +2153,5 @@ namespace RetailPosRepository.Services.Repository
                 return 0;
             }
         }
-
     }
 }

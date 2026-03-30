@@ -1,6 +1,6 @@
 ﻿using Microsoft.Extensions.Caching.Memory;
 
-namespace QsrAdminWebApi.Licensing;
+namespace RetailPos.Licensing;
 
 public class LicenseMiddleware
 {

@@ -4,6 +4,13 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Master.Models
 {
+    public partial class MasterList
+    {
+        public int Code { get; set; } = 0;
+        public string? Name { get; set; } = string.Empty;
+        public int ParentGrpCode { get; set; } = 0;
+    }
+
     [Table("Master1")]
     public partial class Master1
     {
@@ -59,6 +66,11 @@ namespace Master.Models
         public decimal D3 { get; set; } = 0;
         public decimal D4 { get; set; } = 0;
         public decimal D5 { get; set; } = 0;
+        public string C1 { get; set; } = string.Empty;
+        public string C2 { get; set; } = string.Empty;
+        public string C3 { get; set; } = string.Empty;
+        public string C4 { get; set; } = string.Empty;
+        public string C5 { get; set; } = string.Empty;
         public string Values { get; set; } = string.Empty;
         public string? Remark { get; set; } = string.Empty;
         public int NoOfProducts { get; set; } = 0;
