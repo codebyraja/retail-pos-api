@@ -3,10 +3,12 @@ using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.VisualBasic;
+using Pos.Services.Repository;
 using QSRAPIServices.Models;
 using Razorpay.Models;
 using RetailPosRepository.Services.Repository;
 using RetailPosToken.Services.Token;
+using System.Text.Json;
 
 namespace RetailPosController.Controllers
 {
@@ -16,14 +18,37 @@ namespace RetailPosController.Controllers
     public class RetailsPosController : ControllerBase
     {
         public readonly IRepository _services;
+        public readonly IPosRepository _posServices;
+
         public readonly IPaymentService _paymentService;
         public readonly ITokenService _tokenService;
 
-        public RetailsPosController(IRepository services, ITokenService tokenService, IPaymentService paymentService)
+        public RetailsPosController(IRepository services, IPosRepository posServices, ITokenService tokenService, IPaymentService paymentService)
         {
             this._services = services;
+            this._posServices = posServices;
             this._tokenService = tokenService;
             _paymentService = paymentService;
+        }
+
+        [HttpPost("sync-locations")]
+        public async Task<IActionResult> SyncLocations()
+        {
+            try
+            {
+                await _services.SyncLocationsAsync();
+                return Ok(new { Status = 1, Msg = "Location sync completed" });
+            }
+            catch (Exception ex)
+            {
+                return Ok(new { Status = 0, Msg = ex.Message });
+            }
+        }
+
+        [HttpGet("catalog")]
+        public async Task<IActionResult> CatalogAsync()
+        {
+            return Ok(await _posServices.GetCatalogAsync());
         }
 
         [HttpGet("dashboard/card-summary")]
@@ -45,15 +70,26 @@ namespace RetailPosController.Controllers
         }
 
         [HttpPost]
-        public async Task<IActionResult> SaveMaster([FromForm] Master1 master, IFormFile? image)
+        public async Task<IActionResult> SaveMaster([FromForm] Master1 master, [FromForm] string? variants, [FromForm] string? customFields, [FromForm] string? images, [FromForm] List<IFormFile>? files)
         {
-            return Ok(await _services.SaveMasterAsync(master, image));
+            //var variantList = JsonSerializer.Deserialize<List<VariantDto>>(variants);
+            //var customFieldObj = JsonSerializer.Deserialize<CustomFieldsDto>(customFields);
+            //var imageList = JsonSerializer.Deserialize<List<string>>(images);
+
+            var result = await _services.SaveMasterAsync(master, files, variants, customFields, images);
+            return Ok(result);
         }
 
         [HttpGet]
         public async Task<IActionResult> GetMaster(int tranType, int masterType, int code, string? name)
         {
-            return Ok(await _services.GetMasterAsync(tranType, masterType, code, name));
+            //if (tranType == 0) return BadRequest(new { Status = 0, Msg = "Transaction type is required." });
+            if (masterType == 0) return BadRequest(new { Status = 0, Msg = "Master type is required." });
+
+            if (masterType == 6 && code != 0)
+                return Ok(await _services.GetProductByIdAsync(code));
+            else
+                return Ok(await _services.GetMasterAsync(tranType, masterType, code, name));
         }
 
         [HttpGet]
@@ -271,14 +307,6 @@ namespace RetailPosController.Controllers
         public async Task<IActionResult> GetCustomerMasterDet(int code)
         {
             return Ok(await _services.GetCustomerDetAsync(code));   
-        }
-
-        [HttpGet("transactions")]
-        public async Task<IActionResult> GetVchNo(int tranType, int vchtype)
-        {
-            if (vchtype == 0)
-                return BadRequest(new { Status = 0, Msg = "VchType is required" });
-            return Ok(await _services.GetVchNo(tranType, vchtype));
         }
 
         [HttpPost("search")]

@@ -1,12 +1,33 @@
-﻿using System.Xml.Serialization;
-using System.Xml;
+﻿using Master.Models;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using System.Xml;
+using System.Xml.Serialization;
 
 namespace QSRHelperApiServices.Helper
 {
     public class Helper
     {
+        public static string RemoveDiacritics(string text)
+        {
+            if (string.IsNullOrEmpty(text))
+                return text;
+
+            var normalized = text.Normalize(NormalizationForm.FormD);
+            var sb = new StringBuilder();
+
+            foreach (var c in normalized)
+            {
+                if (CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)
+                {
+                    sb.Append(c);
+                }
+            }
+
+            return sb.ToString().Normalize(NormalizationForm.FormC);
+        }
+
         public static string GetBaseUrl(HttpRequest request)
         {
             return $"{request.Scheme}://{request.Host}";

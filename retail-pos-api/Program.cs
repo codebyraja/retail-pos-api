@@ -1,10 +1,12 @@
 ﻿using EasebuzzPayment.Services.V1;
 using EasebuzzPayment.Services.V2;
+using General.Services.Repository;
 using LocationRepository.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Payments.RealTime;
+using Pos.Services.Repository;
 using QSRAPIServices.Models;
 using Razorpay.Models;
 using RetailPos.Licensing;
@@ -63,6 +65,9 @@ builder.Services.AddDbContext<RetailPosDBContext>(options =>
 // Custom Services
 //builder.Services.AddTransient<IRepository, Repository>();
 builder.Services.AddScoped<IRepository, Repository>();
+builder.Services.AddScoped<IPosRepository, PosRepository>();
+builder.Services.AddScoped<IGeneralRepository, GeneralRepository>();
+
 
 // Razorpay Payment Services
 builder.Services.Configure<RazorpayOptions>(builder.Configuration.GetSection("Razorpay"));

@@ -2,6 +2,7 @@
 using Location.Models;
 using Master.Models;
 using Microsoft.EntityFrameworkCore;
+using Pos.Models;
 using QSRAPIServices.Models;
 using Razorpay.Models;
 using System;
@@ -17,9 +18,17 @@ public partial class RetailPosDBContext : DbContext
 {
     public RetailPosDBContext(DbContextOptions<RetailPosDBContext> options) : base(options){ }
     public virtual DbSet<Response> Responses { get; set; }
+    public virtual DbSet<TempCatalog> TempCatalogs { get; set; }
+    public virtual DbSet<PosProductDto> PosProductDtos { get; set; }
+    public virtual DbSet<PosCategoryDto> PosCategoryDtos { get; set; }
+
+    //public DbSet<SyncLocationsEntity> Locations { get; set; }
     public virtual DbSet<MasterList> MasterLists { get; set; }
+    public virtual DbSet<MasterFieldConfig> MasterFieldConfigs { get; set; }
+    public virtual DbSet<MasterLookup> MasterLookups { get; set; }
     public virtual DbSet<Master1> Masters1 { get; set; }
     public virtual DbSet<Master2> Masters2 { get; set; }
+    public virtual DbSet<ProductDto> ProductDtos { get; set; }
 
     public virtual DbSet<Addon> Addons { get; set; }
     public virtual DbSet<AddonList> AddonLists { get; set; }
@@ -75,11 +84,18 @@ public partial class RetailPosDBContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+
         modelBuilder.Entity<Response>(entity => entity.HasNoKey());
         modelBuilder.Entity<Response>(entity => entity.HasNoKey());
+        modelBuilder.Entity<MasterFieldConfig>(entity => entity.HasNoKey());
+        modelBuilder.Entity<MasterLookup>(entity => entity.HasNoKey());
         modelBuilder.Entity<MasterList>(entity => entity.HasNoKey());
+        //modelBuilder.Entity<Master1>().HasKey(x => x.Code);
         modelBuilder.Entity<Master1>(entity => entity.HasNoKey());
         modelBuilder.Entity<Master2>(entity => entity.HasNoKey());
+        modelBuilder.Entity<ProductDto>(entity => entity.HasNoKey());
+
+
         modelBuilder.Entity<Addon>(entity => entity.HasNoKey());
         modelBuilder.Entity<AddonList>(entity => entity.HasNoKey());
         modelBuilder.Entity<RestaurantTable>(entity => entity.HasNoKey());
@@ -119,7 +135,8 @@ public partial class RetailPosDBContext : DbContext
         modelBuilder.Entity<SalesPurchaseChartDto>(entity=> entity.HasNoKey());
         modelBuilder.Entity<RecentTransaction>(entity=>  entity.HasNoKey());
         modelBuilder.Entity<Category>(entity => entity.HasNoKey());
-
+        modelBuilder.Entity<PosProductDto>(entity => entity.HasNoKey());
+        modelBuilder.Entity<PosCategoryDto>(entity => entity.HasNoKey());
         OnModelCreatingPartial(modelBuilder);
     }
     partial void OnModelCreatingPartial(ModelBuilder modelBuilder);

@@ -4,27 +4,15 @@ using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
-using Newtonsoft.Json;
 using QSRAPIServices.Models;
 using QSRHelperApiServices.Helper;
 using Razorpay.Models;
 using RetailPosContext.DBContext;
 using RetailPosEmail.Services.Email;
-using System;
-using System.Collections.Generic;
-using System.Diagnostics;
+using System.Data;
 using System.Dynamic;
 using System.Globalization;
-using System.Linq;
-using System.Reflection;
-using System.Runtime.Serialization;
-using System.Security.AccessControl;
-using System.Security.Cryptography.X509Certificates;
-using System.Text;
-using System.Threading.Tasks;
-using static Org.BouncyCastle.Crypto.Engines.SM2Engine;
-using static System.Net.Mime.MediaTypeNames;
-using static System.Runtime.InteropServices.JavaScript.JSType;
+using System.Text.Json;
 
 namespace RetailPosRepository.Services.Repository
 {
@@ -34,15 +22,17 @@ namespace RetailPosRepository.Services.Repository
         private readonly EmailHelper _emailHelper;
         private readonly IHttpContextAccessor _httpContextAccessor;
         private readonly IServiceScopeFactory _scopeFactory;
+        private readonly IWebHostEnvironment _env;
 
 #pragma warning disable CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring as nullable.
-        public Repository(RetailPosDBContext db, EmailHelper emailHelper, IHttpContextAccessor httpContextAccessor, IServiceScopeFactory scopeFactory)
+        public Repository(RetailPosDBContext db, EmailHelper emailHelper, IHttpContextAccessor httpContextAccessor, IServiceScopeFactory scopeFactory, IWebHostEnvironment env)
 #pragma warning restore CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring as nullable.
         {
             _db = db;
             _emailHelper = emailHelper;
             _httpContextAccessor = httpContextAccessor;
             _scopeFactory = scopeFactory;
+            _env = env;
         }
 
         public async Task<dynamic> ValidateUserAsync(string username, string password)
@@ -287,90 +277,358 @@ namespace RetailPosRepository.Services.Repository
             }
             return new { Status, Msg };
         }
-
-
-        public async Task<Response> SaveMasterAsync(Master1 master, IFormFile image)
+        public async Task<Response> SaveMasterAsync(Master1 master, List<IFormFile> files, string variants, string customFields, string images)
         {
             try
             {
-                string folders = master.MasterType == 4 ? "subcategory" 
-                    : master.MasterType == 5 ? "categories" 
-                    : master.MasterType == 6 ? "product" 
-                    : master.MasterType == 7 ? "brand" 
-                    : master.MasterType == 8 ? "unit" : "";
+                // ✅ 1. JSON Direct Use (NO re-serialize)
+                string variantsJson = variants ?? "";
+                string customFieldsJson = customFields ?? "";
 
-                // 🔥 Image save
-                if (image != null)
-                    master.Image = await FileUploadHelper.SaveFileAsync(image, Directory.GetCurrentDirectory(), folders, master.Name);
-                else
-                    master.Image = "";
-                
+                // ✅ 2. Folder Logic
+                string folder = master.MasterType switch
+                {
+                    5 => "categories",
+                    6 => "product",
+                    7 => "brand",
+                    8 => "unit",
+                    2 => "customer",
+                    _ => "misc"
+                };
 
+                // ✅ EXISTING (frontend → always relative path)
+                var existingImages = string.IsNullOrEmpty(images) ? new List<string>() : System.Text.Json.JsonSerializer.Deserialize<List<string>>(images);
+
+                // normalize
+                existingImages = existingImages.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim().TrimStart('/')).Distinct().ToList();
+
+
+                // ✅ OLD (DB)
+                List<string> oldImages = new();
+
+                if (master.Code > 0)
+                {
+                    var oldJson = await _db.Masters1
+                        .Where(x => x.Code == master.Code)
+                        .Select(x => x.Image)
+                        .FirstOrDefaultAsync();
+
+                    if (!string.IsNullOrWhiteSpace(oldJson))
+                    {
+                        try
+                        {
+                            oldImages = oldJson.Trim().StartsWith("[") ? System.Text.Json.JsonSerializer.Deserialize<List<string>>(oldJson) ?? new() : new List<string> { oldJson };
+                        }
+                        catch
+                        {
+                            oldImages = new List<string> { oldJson };
+                        }
+                    }
+                }
+
+                // normalize
+                oldImages = oldImages.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim().TrimStart('/')).Distinct().ToList();
+
+
+                // ✅ DELETE LOGIC (DIRECT COMPARE – FINAL FIX)
+                foreach (var oldImg in oldImages)
+                {
+                    bool exists = existingImages.Any(x => x == oldImg);
+
+                    if (!exists)
+                    {
+                        try
+                        {
+                            var fullPath = Path.Combine(_env.WebRootPath, oldImg.Replace("/", Path.DirectorySeparatorChar.ToString()));
+
+                            Console.WriteLine("DELETE TRY: " + fullPath);
+
+                            if (File.Exists(fullPath))
+                            {
+                                File.Delete(fullPath);
+                                Console.WriteLine("DELETED: " + fullPath);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine("DELETE ERROR: " + ex.Message);
+                        }
+                    }
+                }
+
+                // ✅ 6. Upload new images
+                List<string> uploadedImages = new List<string>();
+
+                if (files != null && files.Count > 0)
+                {
+                    foreach (var file in files)
+                    {
+                        var path = await FileUploadHelper.SaveFileAsync(file, Directory.GetCurrentDirectory(), folder, master.Name);
+
+                        uploadedImages.Add(path);
+                    }
+                }
+
+                // ✅ 5. Merge Images
+                var finalImages = existingImages.Concat(uploadedImages).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct().ToList();
+
+                string imagesJson = System.Text.Json.JsonSerializer.Serialize(finalImages);
+
+
+                // ✅ 6. User Logic
                 string users = master.Code == 0 ? master.CreatedBy ?? "SYSTEM" : master.ModifiedBy ?? "SYSTEM";
 
+                // ✅ 7. SQL Parameters (existing)
                 SqlParameter param0 = new SqlParameter("@p0", master.Code);
                 SqlParameter param1 = new SqlParameter("@p1", master.MasterType);
                 SqlParameter param2 = new SqlParameter("@p2", master.Name);
-                SqlParameter param3 = new SqlParameter("@p3", master.Alias);
+                SqlParameter param3 = new SqlParameter("@p3", master.Alias ?? "");
                 SqlParameter param4 = new SqlParameter("@p4", master.PrintName);
                 SqlParameter param5 = new SqlParameter("@p5", master.ParentGrp);
                 SqlParameter param6 = new SqlParameter("@p6", master.HSNCode);
+
                 SqlParameter param7 = new SqlParameter("@p7", master.CM1);
                 SqlParameter param8 = new SqlParameter("@p8", master.CM2);
                 SqlParameter param9 = new SqlParameter("@p9", master.CM3);
                 SqlParameter param10 = new SqlParameter("@p10", master.CM4);
                 SqlParameter param11 = new SqlParameter("@p11", master.CM5);
-                SqlParameter param12 = new SqlParameter("@p12", master.D1);
-                SqlParameter param13 = new SqlParameter("@p13", master.D2);
-                SqlParameter param14 = new SqlParameter("@p14", master.D3);
-                SqlParameter param15 = new SqlParameter("@p15", master.D4);
-                SqlParameter param16 = new SqlParameter("@p16", master.D5);
-                SqlParameter param17 = new SqlParameter("@p17", master.C1);
-                SqlParameter param18 = new SqlParameter("@p18", master.C2);
-                SqlParameter param19 = new SqlParameter("@p19", master.C3);
-                SqlParameter param20 = new SqlParameter("@p20", master.C4);
-                SqlParameter param21 = new SqlParameter("@p21", master.C5);
-                SqlParameter param22 = new SqlParameter("@p22", master.Remark);
-                SqlParameter param23 = new SqlParameter("@p23", master.Blocked);
-                SqlParameter param24 = new SqlParameter("@p24", master.Status ? 0 : 1);
-                SqlParameter param25 = new SqlParameter("@p25", string.IsNullOrEmpty(master.Image) ? "" : master.Image);
-                SqlParameter param26 = new SqlParameter("@p26", users);
+                SqlParameter param12 = new SqlParameter("@p12", master.CM6);
+                SqlParameter param13 = new SqlParameter("@p13", master.CM7);
+                SqlParameter param14 = new SqlParameter("@p14", master.CM8);
+                SqlParameter param15 = new SqlParameter("@p15", master.CM9);
+                SqlParameter param16 = new SqlParameter("@p16", master.CM10);
 
-                var result = await _db.Responses.FromSqlRaw("EXEC dbo.[sp_SaveMaster] @p0, @p1, @p2, @p3, @p4, @p5, @p6, @p7, @p8, @p9, @p10, @p11, @p12, @p13, @p14, @p15, @p16, @p17, @p18, @p19, @p20, @p21, @p22, @p23, @p24, @p25, @p26", param0, param1, param2, param3, param4, param5, param6, param7, param8, param9, param10, param11, param12, param13, param14, param15, param16, param17, param18, param19, param20, param21, param22, param23, param24, param25, param26).ToListAsync();
+                SqlParameter param17 = new SqlParameter("@p17", master.D1);
+                SqlParameter param18 = new SqlParameter("@p18", master.D2);
+                SqlParameter param19 = new SqlParameter("@p19", master.D3);
+                SqlParameter param20 = new SqlParameter("@p20", master.D4);
+                SqlParameter param21 = new SqlParameter("@p21", master.D5);
 
-                //.ContinueWith(t =>
-                //{
-                //    if (t.IsFaulted)
-                //    {
-                //        return new { Status = 0, Msg = t.Exception?.GetBaseException().Message ?? "An error occurred." };
-                //    }
-                //    else
-                //    {
-                //        var res = t.Result.FirstOrDefault();
-                //        return new { Status = res?.Status ?? 0, Msg = res?.Msg ?? "No response from database." };
-                //    }
-                //});
-                //return result;
+                SqlParameter param22 = new SqlParameter("@p22", master.C1);
+                SqlParameter param23 = new SqlParameter("@p23", master.C2);
+                SqlParameter param24 = new SqlParameter("@p24", master.C3);
+                SqlParameter param25 = new SqlParameter("@p25", master.C4);
+                SqlParameter param26 = new SqlParameter("@p26", master.C5);
 
+                SqlParameter param27 = new SqlParameter("@p27", master.Remark ?? "");
+                SqlParameter param28 = new SqlParameter("@p28", master.BlockedMaster);
+                SqlParameter param29 = new SqlParameter("@p29", master.DeactiveMaster ? 0 : 1);
 
-                //90 rupres, 40, 4000, 20K, 
+                // ❗ Single image column (optional)
+                SqlParameter param30 = new SqlParameter("@p30", finalImages.FirstOrDefault() ?? "");
+                SqlParameter param31 = new SqlParameter("@p31", users);
 
-                var res = result.First();
+                // ✅ 8. JSON Params
+                SqlParameter param32 = new SqlParameter("@p32", variantsJson);
+                SqlParameter param33 = new SqlParameter("@p33", customFieldsJson);
+                SqlParameter param34 = new SqlParameter("@p34", imagesJson);
 
-                int Status = result[0].Status;
-                string Msg = result[0].Msg;
-                int Code = result[0].Code;
+                // ✅ 9. Execute SP
+                var result = await _db.Responses.FromSqlRaw("EXEC dbo.sp_SaveMaster @p0,@p1,@p2,@p3,@p4,@p5,@p6,@p7,@p8,@p9,@p10,@p11,@p12,@p13,@p14,@p15,@p16,@p17,@p18,@p19,@p20,@p21,@p22,@p23,@p24,@p25,@p26,@p27,@p28,@p29,@p30,@p31,@p32,@p33,@p34", param0, param1, param2, param3, param4, param5, param6, param7, param8, param9, param10, param11, param12, param13, param14, param15, param16, param17, param18, param19, param20, param21, param22, param23, param24, param25, param26, param27, param28, param29, param30, param31, param32, param33, param34).ToListAsync();
 
-                if (result == null || result.Count == 0)
-                {
-                    return new Response { Status = 0, Msg = "No response from database." };
-                }
-                return new Response { Status = Status, Msg = Msg, Code = Code };
+                // ✅ 10. Safe Response
+                var res = result.FirstOrDefault();
 
+                if (res == null) return new Response { Status = 0, Msg = "No response from database." };
+
+                return new Response { Status = res.Status, Msg = res.Msg, Code = res.Code };
             }
             catch (Exception ex)
             {
-                return new Response { Status = 0, Msg = ex.Message.ToString() };
+                return new Response { Status = 0, Msg = ex.Message };
+            }
+        }
+
+
+        //public async Task<Response> SaveMasterAsync(Master1 master, List<IFormFile> files, string variants, string customFields, string images)
+        //{
+        //    try
+        //    {
+        //        string variantsJson = variants != null ? System.Text.Json.JsonSerializer.Serialize(variants) : "";
+        //        string customFieldsJson = customFields != null ? System.Text.Json.JsonSerializer.Serialize(customFields) : "";
+        //        string imagesJson = images != null ? System.Text.Json.JsonSerializer.Serialize(images) : "";
+
+        //        string folders = master.MasterType == 4 ? "subcategory" 
+        //            : master.MasterType == 5 ? "categories" 
+        //            : master.MasterType == 6 ? "product" 
+        //            : master.MasterType == 7 ? "brand" 
+        //            : master.MasterType == 8 ? "unit" : "";
+
+        //        // 🔥 Image save
+        //        master.Image = images != null ? await FileUploadHelper.SaveFileAsync(files, Directory.GetCurrentDirectory(), folders, master.Name) : "";
+        //        string users = master.Code == 0 ? master.CreatedBy ?? "SYSTEM" : master.ModifiedBy ?? "SYSTEM";
+
+        //        SqlParameter param0 = new SqlParameter("@p0", master.Code);
+        //        SqlParameter param1 = new SqlParameter("@p1", master.MasterType);
+        //        SqlParameter param2 = new SqlParameter("@p2", master.Name);
+        //        SqlParameter param3 = new SqlParameter("@p3", master.Alias);
+        //        SqlParameter param4 = new SqlParameter("@p4", master.PrintName);
+        //        SqlParameter param5 = new SqlParameter("@p5", master.ParentGrp);
+        //        SqlParameter param6 = new SqlParameter("@p6", master.HSNCode);
+        //        SqlParameter param7 = new SqlParameter("@p7", master.CM1);
+        //        SqlParameter param8 = new SqlParameter("@p8", master.CM2);
+        //        SqlParameter param9 = new SqlParameter("@p9", master.CM3);
+        //        SqlParameter param10 = new SqlParameter("@p10", master.CM4);
+        //        SqlParameter param11 = new SqlParameter("@p11", master.CM5);
+        //        SqlParameter param12 = new SqlParameter("@p12", master.D1);
+        //        SqlParameter param13 = new SqlParameter("@p13", master.D2);
+        //        SqlParameter param14 = new SqlParameter("@p14", master.D3);
+        //        SqlParameter param15 = new SqlParameter("@p15", master.D4);
+        //        SqlParameter param16 = new SqlParameter("@p16", master.D5);
+        //        SqlParameter param17 = new SqlParameter("@p17", master.C1);
+        //        SqlParameter param18 = new SqlParameter("@p18", master.C2);
+        //        SqlParameter param19 = new SqlParameter("@p19", master.C3);
+        //        SqlParameter param20 = new SqlParameter("@p20", master.C4);
+        //        SqlParameter param21 = new SqlParameter("@p21", master.C5);
+        //        SqlParameter param22 = new SqlParameter("@p22", master.Remark);
+        //        SqlParameter param23 = new SqlParameter("@p23", master.Blocked);
+        //        SqlParameter param24 = new SqlParameter("@p24", master.Status ? 0 : 1);
+        //        SqlParameter param25 = new SqlParameter("@p25", string.IsNullOrEmpty(master.Image) ? "" : master.Image);
+        //        SqlParameter param26 = new SqlParameter("@p26", users);
+
+        //        SqlParameter param27 = new SqlParameter("@p27", variantsJson);
+        //        SqlParameter param28 = new SqlParameter("@p28", customFieldsJson);
+        //        SqlParameter param29 = new SqlParameter("@p29", imagesJson);
+
+        //        var result = await _db.Responses.FromSqlRaw("EXEC dbo.[sp_SaveMaster] @p0, @p1, @p2, @p3, @p4, @p5, @p6, @p7, @p8, @p9, @p10, @p11, @p12, @p13, @p14, @p15, @p16, @p17, @p18, @p19, @p20, @p21, @p22, @p23, @p24, @p25, @p26, @p27, @p28, @p29 ", param0, param1, param2, param3, param4, param5, param6, param7, param8, param9, param10, param11, param12, param13, param14, param15, param16, param17, param18, param19, param20, param21, param22, param23, param24, param25, param26, param27, param28, param29).ToListAsync();
+
+        //        //.ContinueWith(t =>
+        //        //{
+        //        //    if (t.IsFaulted)
+        //        //    {
+        //        //        return new { Status = 0, Msg = t.Exception?.GetBaseException().Message ?? "An error occurred." };
+        //        //    }
+        //        //    else
+        //        //    {
+        //        //        var res = t.Result.FirstOrDefault();
+        //        //        return new { Status = res?.Status ?? 0, Msg = res?.Msg ?? "No response from database." };
+        //        //    }
+        //        //});
+        //        //return result;
+
+
+        //        //90 rupres, 40, 4000, 20K, 
+
+        //        var res = result.First();
+
+        //        int Status = result[0].Status;
+        //        string Msg = result[0].Msg;
+        //        int Code = result[0].Code;
+
+        //        if (result == null || result.Count == 0)
+        //        {
+        //            return new Response { Status = 0, Msg = "No response from database." };
+        //        }
+        //        return new Response { Status = Status, Msg = Msg, Code = Code };
+
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        return new Response { Status = 0, Msg = ex.Message.ToString() };
+        //    }
+        //}
+
+        public async Task<dynamic> GetMasterAsync(int tranType, int masterType, int code, string? name)
+
+        {
+            try
+            {
+                var request = _httpContextAccessor?.HttpContext?.Request;
+                var baseUrl = Helper.GetBaseUrl(request);
+
+                string sql = "Select ISNULL(A.[Code], 0) as Code, ISNULL(A.[MasterType], 0) as MasterType, ISNULL(A.[Name], '') as Name, ISNULL(A.[Alias], '') as Alias, ISNULL(A.[PrintName], '') as PrintName, ISNULL(A.[ParentGrp], 0) as ParentGrpCode, ISNULL(P.[Name], '') as ParentGrpName, ISNULL(A.[HSNCode], '') as HSNCode," +
+                    " ISNULL(A.[CM1], 0) as CM1, " +
+                    " ISNULL(A.[CM2], 0) as CM2, " +
+                    " ISNULL(A.[CM3], 0) as CM3, " +
+                    " ISNULL(A.[CM4], 0) as CM4, " +
+                    " ISNULL(A.[CM5], 0) as CM5, " +
+                    " ISNULL(A.[CM1], 0) as CM6, " +
+                    " ISNULL(A.[CM2], 0) as CM7, " +
+                    " ISNULL(A.[CM3], 0) as CM8, " +
+                    " ISNULL(A.[CM4], 0) as CM9, " +
+                    " ISNULL(A.[CM5], 0) as CM10, " +
+                    " ISNULL(A.[D1], 0) as D1, ISNULL(A.[D2], 0) as D2, ISNULL(A.[D3], 0) as D3, ISNULL(A.[D4], 0) as D4, ISNULL(A.[D5], 0) as D5, ISNULL(A.[C1], '') as C1, ISNULL(A.[C2], '') as C2, ISNULL(A.[C3], '') as C3, ISNULL(A.[C4], '') as C4, ISNULL(A.[C5], '') as C5, ISNULL(STRING_AGG(V.[Value], ','), '') as [Values], ISNULL(A.[Remark], '') as Remark, 10 as NoOfProducts, ISNULL(A.[BlockedMaster], 0) as Blocked, ISNULL(A.[DeactiveMaster], 0) as Deactive, ISNULL(A.[Image], '') as Image, ISNULL(A.[CreatedBy], '') as CreatedBy, ISNULL(A.[CreationTime], '') as CreatedOn, ISNULL(A.[ModifiedBy], '') ModifiedBy, ISNULL(A.[ModificationTime], '') as ModifiedOn " +
+                    "FROM Master1 A " +
+                    "LEFT JOIN Master1 P ON A.ParentGrp = P.Code " + // Parent Group
+                    "LEFT JOIN VariantValues V ON V.VariantId = A.Code " +
+                    " Where A.[MasterType] = @masterType GROUP BY A.Code, A.MasterType, A.Name, A.Alias, A.PrintName, A.ParentGrp, P.[Name], A.HSNCode, A.[CM1], A.[CM2], A.[CM3], A.[CM4], A.[CM5], A.[CM6], A.[CM7], A.[CM8], A.[CM9], A.[CM10], A.[D1], A.[D2], A.[D3], A.[D4], A.[D5], A.[C1], A.[C2], A.[C3], A.[C4], A.[C5], A.Remark, A.BlockedMaster, A.DeactiveMaster, A.Image, A.CreatedBy, A.CreationTime, A.ModifiedBy, A.ModificationTime Order By A.[Name]";
+                var DT1 = await _db.Masters2.FromSqlRaw(sql, new SqlParameter("@masterType", masterType)).ToListAsync();
+                //where MasterType = @masterType and(@code = 0 or Code = @code) and(@name is null or Name like '%' + @name + '%')
+                //var DT1 = await _db.Masters.FromSqlRaw(sql, new SqlParameter("@masterType", masterType), new SqlParameter("@code", code), new SqlParameter("@name", name ?? (object)DBNull.Value)).ToListAsync();
+
+                if (DT1 == null || DT1.Count == 0)
+                {
+                    return new { Status = 0, Msg = "No masters found." };
+                }
+
+                //foreach (var item in DT1)
+                //{
+                //    if (!string.IsNullOrEmpty(item.Image))
+                //    {
+                //        item.Image = baseUrl + item.Image;
+                //    }
+                //    else
+                //    {
+                //        //item.Image = "https://tse1.mm.bing.net/th/id/OIP.1bN_NV0O39xEAR7gjO8MgwHaIM?rs=1&pid=ImgDetMain&o=7&rm=3";
+                //    }
+                //}
+
+                // 🔥 STEP 1: Collect all CM IDs
+                var allIds = DT1.SelectMany(x => new[] { x.CM1, x.CM2, x.CM3, x.CM4, x.CM5, x.CM6, x.CM7, x.CM8, x.CM9, x.CM10 }).Where(x => x > 0).Distinct().ToList();
+
+                // 🔥 STEP 2: Fetch all names in ONE query
+                var nameDict = await _db.Masters1.Where(x => allIds.Contains(x.Code)).ToDictionaryAsync(x => x.Code, x => x.Name);
+
+                // 🔥 STEP 3: Config
+                var fieldConfig = MasterFieldConfigProvider.GetFieldConfig(masterType);
+
+                // 🔥 STEP 4: Mapping
+                foreach (var item in DT1)
+                {
+                    var dynamicFields = new Dictionary<string, object>();
+
+                    foreach (var config in fieldConfig)
+                    {
+                        int value = config.Field switch
+                        {
+                            "CM1" => item.CM1,
+                            "CM2" => item.CM2,
+                            "CM3" => item.CM3,
+                            "CM4" => item.CM4,
+                            "CM5" => item.CM5,
+                            "CM6" => item.CM6,
+                            "CM7" => item.CM7,
+                            "CM8" => item.CM8,
+                            "CM9" => item.CM9,
+                            "CM10" => item.CM10,
+                            _ => 0
+                        };
+
+                        if (value > 0)
+                        {
+                            string nameValue = nameDict.TryGetValue(value, out var nm) ? nm : "";
+
+                            dynamicFields[config.Label] = new
+                            {
+                                Id = value,
+                                Name = nameValue
+                            };
+                        }
+                    }
+
+                    item.DynamicFields = dynamicFields;
+
+                    //if (!string.IsNullOrEmpty(item.Image))
+                    //{
+                    //    item.Image = baseUrl + item.Image;
+                    //}
+                }
+
+                return new { Status = 1, Msg = "Masters retrieved successfully.", Data = DT1 };
+            }
+            catch (Exception ex)
+            {
+                return new { Status = 0, Msg = ex.Message.ToString() };
             }
         }
 
@@ -386,12 +644,392 @@ namespace RetailPosRepository.Services.Repository
                 {
                     return new { Status = 0, Msg = "No masters found." };
                 }
-            } 
-            catch (Exception ex) 
+            }
+            catch (Exception ex)
             {
                 return new { Status = 0, Msg = ex.Message.ToString() };
             }
             return new { Status = 1, Msg = "Success", Data = list };
+        }
+
+        //public async Task SyncLocationsAsync()
+        //{
+        //    using var client = new HttpClient();
+        //    client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0");
+
+        //    var response = await client.GetAsync("https://restcountries.com/v3.1/all?fields=name,cca2");
+
+        //    if (!response.IsSuccessStatusCode)
+        //        throw new Exception(await response.Content.ReadAsStringAsync());
+
+        //    var json = await response.Content.ReadAsStringAsync();
+        //    var countries = Newtonsoft.Json.JsonConvert.DeserializeObject<dynamic>(json);
+
+        //    foreach (var c in countries)
+        //    {
+        //        string countryName = c.name.common;
+
+        //        // ✅ check existing
+        //        var country = await _db.Locations.FirstOrDefaultAsync(x => x.Name == countryName && x.MasterType == 55);
+
+        //        if (country == null)
+        //        {
+        //            country = new SyncLocationsEntity
+        //            {
+        //                Name = countryName,
+        //                MasterType = 55,
+        //                ParentGrp = 0
+        //            };
+
+        //            _db.Locations.Add(country);
+        //            await _db.SaveChangesAsync(); // needed for Id
+        //        }
+
+        //        int countryId = country.Code;
+
+        //        // States
+        //        var stateResponse = await client.PostAsJsonAsync(
+        //            "https://countriesnow.space/api/v0.1/countries/states",
+        //            new { country = countryName }
+        //        );
+
+        //        if (!stateResponse.IsSuccessStatusCode)
+        //            continue;
+
+        //        var stateJson = await stateResponse.Content.ReadAsStringAsync();
+        //        dynamic stateData = Newtonsoft.Json.JsonConvert.DeserializeObject(stateJson);
+
+        //        var statesToAdd = new List<Master1>();
+
+        //        foreach (var s in stateData.data.states)
+        //        {
+        //            string stateName = s.name.ToString();
+
+        //            bool exists = await _db.Masters1.AnyAsync(x =>
+        //                x.Name == stateName &&
+        //                x.MasterType == 56 &&
+        //                x.ParentGrp == countryId);
+
+        //            if (!exists)
+        //            {
+        //                statesToAdd.Add(new Master1
+        //                {
+        //                    Name = stateName,
+        //                    ParentGrp = countryId,
+        //                    MasterType = 56
+        //                });
+        //            }
+        //        }
+
+        //        if (statesToAdd.Count > 0)
+        //        {
+        //            _db.Masters1.AddRange(statesToAdd);
+        //            await _db.SaveChangesAsync();
+        //        }
+        //    }
+        //}
+
+        //public async Task SyncLocationsAsync()
+        //{
+        //    using var client = new HttpClient();
+        //    client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0");
+
+        //    var response = await client.GetAsync("https://restcountries.com/v3.1/all?fields=name,cca2");
+
+        //    if (!response.IsSuccessStatusCode)
+        //        throw new Exception(await response.Content.ReadAsStringAsync());
+
+        //    var json = await response.Content.ReadAsStringAsync();
+        //    var countries = Newtonsoft.Json.JsonConvert.DeserializeObject<dynamic>(json);
+
+        //    foreach (var c in countries)
+        //    {
+        //        string orgcountryName = c.name.common.ToString();
+        //        string countryName = Helper.RemoveDiacritics(c.name.common.ToString());
+        //        string iso = c.cca2.ToString();
+
+        //        // 🔹 Country Insert
+        //        await _db.Database.ExecuteSqlRawAsync(@"
+        //        IF NOT EXISTS (SELECT 1 FROM Master1 WHERE Name = {0} AND MasterType = 55)
+        //        BEGIN
+        //            INSERT INTO Master1 (Name, Alias, PrintName, MasterType, ParentGrp) VALUES ({0}, {1}, {2}, 55, 0)
+        //        END
+        //        ", countryName, iso, countryName);
+
+        //        var countryId = await _db.Masters1
+        //            .Where(x => x.Name == countryName && x.MasterType == 55)
+        //            .Select(x => x.Code)
+        //            .FirstAsync();
+
+        //        // 🔹 States API
+        //        var stateResponse = await client.PostAsJsonAsync(
+        //            "https://countriesnow.space/api/v0.1/countries/states",
+        //            new { country = countryName }
+        //        );
+
+        //        if (!stateResponse.IsSuccessStatusCode)
+        //            continue;
+
+        //        var stateJson = await stateResponse.Content.ReadAsStringAsync();
+        //        dynamic stateData = Newtonsoft.Json.JsonConvert.DeserializeObject(stateJson);
+
+        //        foreach (var s in stateData.data.states)
+        //        {
+        //            string stateName = s.name.ToString();
+        //            string stateIso = s.state_code != null ? s.state_code.ToString() : null;
+
+        //            // 🔹 State Insert
+        //            await _db.Database.ExecuteSqlRawAsync(@"
+        //            IF NOT EXISTS (
+        //                SELECT 1 FROM Master1 
+        //                WHERE Name = {0} AND MasterType = 56 AND ParentGrp = {1}
+        //            )
+        //            BEGIN
+        //                INSERT INTO Master1 (Name, Alias, MasterType, ParentGrp) 
+        //                VALUES ({0}, {1}, 56, {2})
+        //            END
+        //            ", stateName, stateIso, countryId);
+
+        //            var stateId = await _db.Masters1
+        //                .Where(x => x.Name == stateName && x.MasterType == 56 && x.ParentGrp == countryId)
+        //                .Select(x => x.Code)
+        //                .FirstAsync();
+
+        //            // 🔹 Cities API
+        //            var cityResponse = await client.PostAsJsonAsync(
+        //                "https://countriesnow.space/api/v0.1/countries/state/cities",
+        //                new { country = countryName, state = stateName }
+        //            );
+
+        //            if (!cityResponse.IsSuccessStatusCode)
+        //                continue;
+
+        //            var cityJson = await cityResponse.Content.ReadAsStringAsync();
+        //            dynamic cityData = Newtonsoft.Json.JsonConvert.DeserializeObject(cityJson);
+
+        //            foreach (var city in cityData.data)
+        //            {
+        //                string cityName = city.ToString();
+
+        //                // 🔹 City Insert
+        //                await _db.Database.ExecuteSqlRawAsync(@"
+        //                IF NOT EXISTS (
+        //                    SELECT 1 FROM Master1 
+        //                    WHERE Name = {0} AND MasterType = 57 AND ParentGrp = {1}
+        //                )
+        //                BEGIN
+        //                    INSERT INTO Master1 (Name, MasterType, ParentGrp) 
+        //                    VALUES ({0}, 57, {1})
+        //                END
+        //                ", cityName, stateId);
+        //            }
+        //        }
+        //    }
+        //}
+
+
+        public async Task SyncLocationsAsync()
+        {
+            using var client = new HttpClient();
+            client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0");
+
+            var table = CreateLocationTable();
+
+            var response = await client.GetAsync("https://restcountries.com/v3.1/all?fields=name,cca2");
+            var json = await response.Content.ReadAsStringAsync();
+
+            var countries = Newtonsoft.Json.JsonConvert.DeserializeObject<dynamic>(json);
+
+            foreach (var c in countries)
+            {
+                string orgName = c.name.common.ToString();
+                string name = Helper.RemoveDiacritics(orgName);
+                string iso = c.cca2?.ToString();
+
+                // COUNTRY
+                table.Rows.Add(name, iso, name, 55, DBNull.Value);
+
+                // STATES
+                var stateRes = await client.PostAsJsonAsync(
+                    "https://countriesnow.space/api/v0.1/countries/states",
+                    new { country = orgName }
+                );
+
+                if (!stateRes.IsSuccessStatusCode)
+                    continue;
+
+                dynamic stateData = Newtonsoft.Json.JsonConvert.DeserializeObject(await stateRes.Content.ReadAsStringAsync());
+
+                if (stateData?.data?.states == null)
+                    continue;
+
+                foreach (var s in stateData.data.states)
+                {
+                    string stateName = Helper.RemoveDiacritics(s.name.ToString());
+
+                    table.Rows.Add(stateName, null, null, 56, DBNull.Value);
+
+                    // CITIES
+                    var cityRes = await client.PostAsJsonAsync(
+                        "https://countriesnow.space/api/v0.1/countries/state/cities",
+                        new { country = orgName, state = s.name.ToString() }
+                    );
+
+                    if (!cityRes.IsSuccessStatusCode)
+                        continue;
+
+                    dynamic cityData = Newtonsoft.Json.JsonConvert.DeserializeObject(await cityRes.Content.ReadAsStringAsync());
+
+                    if (cityData?.data == null)
+                        continue;
+
+                    foreach (var city in cityData.data)
+                    {
+                        string cityName = Helper.RemoveDiacritics(city.ToString());
+
+                        table.Rows.Add(cityName, null, null, 57, DBNull.Value);
+                    }
+                }
+            }
+
+            // 🔥 SINGLE BULK INSERT
+            await BulkInsertAsync(table);
+        }
+
+        private DataTable CreateLocationTable()
+        {
+            var table = new DataTable();
+
+            table.Columns.Add("Name", typeof(string));
+            table.Columns.Add("Alias", typeof(string));
+            table.Columns.Add("PrintName", typeof(string));
+            table.Columns.Add("MasterType", typeof(short));
+            table.Columns.Add("ParentGrp", typeof(int));
+
+            return table;
+        }
+
+        private async Task BulkInsertAsync(DataTable table)
+        {
+            using var conn = (SqlConnection)_db.Database.GetDbConnection();
+            if (conn.State != ConnectionState.Open)
+                await conn.OpenAsync();
+
+            using var bulk = new SqlBulkCopy(conn);
+
+            bulk.DestinationTableName = "Master1";
+
+            bulk.ColumnMappings.Add("Name", "Name");
+            bulk.ColumnMappings.Add("Alias", "Alias");
+            bulk.ColumnMappings.Add("PrintName", "PrintName");
+            bulk.ColumnMappings.Add("MasterType", "MasterType");
+            bulk.ColumnMappings.Add("ParentGrp", "ParentGrp");
+
+            await bulk.WriteToServerAsync(table);
+        }
+
+        public async Task<dynamic> GetProductByIdAsync(int code)
+        {
+            try
+            {
+                string sql = @"SELECT M.Code, ISNULL(M.Name, '') as Name, ISNULL(M.Alias, '') as Alias, ISNULL(M.PrintName, '') as PrintName, ISNULL(M.ParentGrp, 0) as ParentGrpCode, ISNULL(P.[Name], '') as ParentGrpName, ISNULL(M.[HSNCode], 0) as HSNCode,
+                ISNULL(M.CM1, 0) as StoreId, ISNULL(S.[Name], '') as StoreName, ISNULL(M.CM2, 0) as WarehouseId, ISNULL(W.[Name], '') as WarehouseName, ISNULL(M.CM3, 0) as BrandId, ISNULL(B.[Name], '') as BrandName, ISNULL(M.CM4, 0) as UnitId, ISNULL(U.Name, '') as UnitName,
+                ISNULL(M.CM5, 0) as SellingTypeId,
+                ISNULL(CASE WHEN M.CM5 = 1 THEN 'Single' WHEN M.CM5 = 2 THEN 'Variant' WHEN M.CM5 = 3 THEN 'Service' WHEN M.CM5 = 4 THEN 'Combo / Bundle' ELSE 'Single' END, '') as SellingTypeName,
+                ISNULL(M.CM6, 0) as BarcodeSymbolId,
+                ISNULL(CASE WHEN M.CM6 = 1 THEN 'Code128' WHEN M.CM6 = 2 THEN 'EAN-13' WHEN M.CM6 = 3 THEN 'EAN-8' WHEN M.CM6 = 4 THEN 'UPC' WHEN M.CM6 = 5 THEN 'Code39' WHEN M.CM6 = 6 THEN 'ITF-14' ELSE 'Code128' END, '') as BarcodeSymbolName, 
+                ISNULL(M.CM7, 0) as TaxTypeId,
+                ISNULL(CASE WHEN M.CM7 = 1 THEN 'Exclusive' WHEN M.CM7 = 2 THEN 'Inclusive' ELSE 'No Tax' END, '') as TaxTypeName ,
+                ISNULL(M.CM8, 0) as DiscountTypeId, 
+                ISNULL(CASE WHEN M.CM8 = 1 THEN 'Percentage (%)' WHEN M.CM8 = 2 THEN 'Flat (₹)' ELSE 'No Discount' END, '') as DiscountTypeName,
+                ISNULL(M.CM9, 0) as ProductType,
+                ISNULL(M.C1, '') as C1, ISNULL(M.C2, '') as C2, ISNULL(M.C3, '') C3, ISNULL(M.C4, '') as C4, ISNULL(M.C5, '') as C5, M.D1, M.D2, M.D3, M.D4, M.D5, M.Remark,
+                -- Variants
+                ISNULL((SELECT Attribute, Value, SKU, Qty, Price FROM ProductVariants V WHERE V.MasterCode = M.Code FOR JSON PATH), '') AS Variants,
+                -- Images
+                ISNULL((SELECT ImagePath FROM ProductImages I WHERE I.MasterCode = M.Code FOR JSON PATH), '') AS Images,
+                -- Custom Fields
+                ISNULL((SELECT TOP 1 Warranty, Manufacturer, ManufacturedDate, ExpiryDate FROM ProductCustomFields C WHERE C.MasterCode = M.Code FOR JSON PATH, WITHOUT_ARRAY_WRAPPER), '') AS CustomFields
+                FROM Master1 M
+                LEFT JOIN Master1 P ON P.Code = M.ParentGrp   -- Parent Group
+                LEFT JOIN Master1 S ON S.Code = M.CM1   -- Store
+                LEFT JOIN Master1 W ON W.Code = M.CM2   -- Warehouse
+                LEFT JOIN Master1 B ON B.Code = M.CM3   -- Brand
+                LEFT JOIN Master1 U ON U.Code = M.CM4   -- Unit 
+                WHERE M.Code = @code AND M.MasterType = 6 GROUP BY M.Code, M.Name, M.Alias, M.PrintName, M.ParentGrp, P.Name, M.HSNCode, M.CM1, S.Name, M.CM2, W.Name, M.CM3, B.Name, M.CM4, U.Name, M.CM5, M.CM6, M.CM7, M.CM8, M.CM9, M.C1, M.C2, M.C3, M.C4, M.C5, M.D1, M.D2, M.D3, M.D4, M.D5, M.Remark";
+
+                var data = await _db.ProductDtos.FromSqlRaw(sql, new SqlParameter("@code", code)).AsNoTracking().FirstOrDefaultAsync();
+
+                if (data == null)
+                {
+                    return new { Status = 0, Msg = "Product not found." };
+                }
+
+                // 🔥 JSON Parse
+                var variants = string.IsNullOrEmpty(data.Variants)
+                    ? new List<object>()
+                    : JsonSerializer.Deserialize<object>(data.Variants);
+
+                var images = string.IsNullOrEmpty(data.Images)
+                    ? new List<object>()
+                    : JsonSerializer.Deserialize<object>(data.Images);
+
+                var customFields = string.IsNullOrEmpty(data.CustomFields)
+                    ? new object()
+                    : JsonSerializer.Deserialize<object>(data.CustomFields);
+
+                return new
+                {
+                    Status = 1,
+                    Msg = "Success",
+                    Data = new
+                    {
+                        data.Code,
+                        data.Name,
+                        data.Alias,
+                        data.ParentGrpCode,
+                        data.ParentGrpName,
+                        data.HSNCode,
+                        data.StoreId,
+                        data.StoreName,
+                        data.WarehouseId,
+                        data.WarehouseName,
+                        data.BrandId,
+                        data.BrandName,
+                        data.UnitId,
+                        data.UnitName,
+                        data.SellingTypeId,
+                        data.SellingTypeName,
+                        data.BarcodeSymbolId,
+                        data.BarcodeSymbolName,
+                        data.TaxTypeId,
+                        data.TaxTypeName,
+                        data.DiscountTypeId,
+                        data.DiscountTypeName,
+                        data.ProductType,
+                        data.C1,
+                        data.C2,
+                        data.C3,
+                        data.C4,
+                        data.C5,
+                        data.D1,
+                        data.D2,
+                        data.D3,
+                        data.D4,
+                        data.D5,
+
+                        data.Remark,
+
+                        variants,
+                        images,
+                        customFields
+                    }
+                };
+            }
+            catch (Exception ex)
+            {
+                return new { Status = 0, Msg = ex.Message };
+            }
         }
 
         public async Task SaveVariantAsync(int itemCode, ItemVariantDto variant)
@@ -404,42 +1042,7 @@ namespace RetailPosRepository.Services.Repository
             await _db.Database.ExecuteSqlRawAsync("EXEC sp_SaveItemVariant @ItemCode,@VariantName,@Price,@IsDefault", p1, p2, p3, p4);
         }
 
-        public async Task<dynamic> GetMasterAsync(int tranType, int masterType, int code, string? name)
-        {
-            try
-            {
-                var request = _httpContextAccessor?.HttpContext?.Request;
-                var baseUrl = Helper.GetBaseUrl(request);
 
-                string sql = "Select ISNULL(A.[Code], 0) as Code, ISNULL(A.[MasterType], 0) as MasterType, ISNULL(A.[Name], '') as Name, ISNULL(A.[Alias], '') as Alias, ISNULL(A.[PrintName], '') as PrintName, ISNULL(A.[ParentGrp], 0) as ParentGrpCode, ISNULL(M1.[Name], '') as ParentGrpName, ISNULL(A.[HSNCode], '') as HSNCode, ISNULL(A.[CM1], 0) as CM1, ISNULL(A.[CM2], 0) as CM2, ISNULL(A.[CM3], 0) as CM3, ISNULL(A.[CM4], 0) as CM4, ISNULL(A.[CM5], 0) as CM5, ISNULL(A.[D1], 0) as D1, ISNULL(A.[D2], 0) as D2, ISNULL(A.[D3], 0) as D3, ISNULL(A.[D4], 0) as D4, ISNULL(A.[D5], 0) as D5, ISNULL(A.[C1], '') as C1, ISNULL(A.[C2], '') as C2, ISNULL(A.[C3], '') as C3, ISNULL(A.[C4], '') as C4, ISNULL(A.[C5], '') as C5, ISNULL(STRING_AGG(V.[Value], ','), '') as [Values], ISNULL(A.[Remark], '') as Remark, 10 as NoOfProducts, ISNULL(A.[BlockedMaster], 0) as Blocked, ISNULL(A.[DeactiveMaster], 0) as Deactive, ISNULL(A.[Image], '') as Image, ISNULL(A.[CreatedBy], '') as CreatedBy, ISNULL(A.[CreationTime], '') as CreatedOn, ISNULL(A.[ModifiedBy], '') ModifiedBy, ISNULL(A.[ModificationTime], '') as ModifiedOn from Master1 A LEFT JOIN Master1 M1 ON A.ParentGrp = M1.Code LEFT JOIN VariantValues V ON V.VariantId = A.Code Where A.[MasterType] = @masterType GROUP BY A.Code, A.MasterType, A.Name, A.Alias, A.PrintName, A.ParentGrp, M1.Name, A.HSNCode, A.[CM1], A.[CM2], A.[CM3], A.[CM4], A.[CM5], A.[D1], A.[D2], A.[D3], A.[D4], A.[D5], A.[C1], A.[C2], A.[C3], A.[C4], A.[C5], A.Remark, A.BlockedMaster, A.DeactiveMaster, A.Image, A.CreatedBy, A.CreationTime, A.ModifiedBy, A.ModificationTime Order By A.[Name]";
-                var DT1 = await _db.Masters2.FromSqlRaw(sql, new SqlParameter("@masterType", masterType)).ToListAsync();
-                //where MasterType = @masterType and(@code = 0 or Code = @code) and(@name is null or Name like '%' + @name + '%')
-                //var DT1 = await _db.Masters.FromSqlRaw(sql, new SqlParameter("@masterType", masterType), new SqlParameter("@code", code), new SqlParameter("@name", name ?? (object)DBNull.Value)).ToListAsync();
-
-                if (DT1 == null || DT1.Count == 0)
-                {
-                    return new { Status = 0, Msg = "No masters found." };
-                }
-
-                foreach (var item in DT1)
-                {
-                    if (!string.IsNullOrEmpty(item.Image))
-                    {
-                        item.Image = baseUrl + item.Image;
-                    }
-                    else
-                    {
-                        item.Image = "https://tse1.mm.bing.net/th/id/OIP.1bN_NV0O39xEAR7gjO8MgwHaIM?rs=1&pid=ImgDetMain&o=7&rm=3";
-                    }
-                }
-
-                return new { Status = 1, Msg = "Masters retrieved successfully.", Data = DT1 };
-            }
-            catch (Exception ex)
-            {
-                return new { Status = 0, Msg = ex.Message.ToString() };
-            }
-        }
 
         public async Task<Response> SaveAddonAsync(Addon addon)
         {
@@ -661,12 +1264,13 @@ namespace RetailPosRepository.Services.Repository
                 var helper = new Helper(); // Create an instance of Helper
 
                 // Delete existing images for the product
-                bool deleted = await DeleteProductImagesAsync(productId); 
+                bool deleted = await DeleteProductImagesAsync(productId);
 
                 if (!deleted)
                 {
                     return new ImageUploadResult { IsSuccess = false, Message = $"Unable to remove images for Product ID: {productId}. Please try again.", UploadedPaths = new List<string>() };
-                };
+                }
+                ;
 
                 foreach (var image in images)
                 {
@@ -737,7 +1341,7 @@ namespace RetailPosRepository.Services.Repository
                     // Step 2: Delete each physical image file
                     foreach (var img in images)
                     {
-                        var fullPath = Path.Combine(Directory.GetCurrentDirectory(),"wwwroot", img.FilePath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+                        var fullPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", img.FilePath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
 
                         if (System.IO.File.Exists(fullPath))
                         {
@@ -840,7 +1444,7 @@ namespace RetailPosRepository.Services.Repository
         }
         public async Task<dynamic> GetMasterListByType(int tranType, int masterType, int code, string? name)
         {
-            var mDetails = new List<UnknowList>(); 
+            var mDetails = new List<UnknowList>();
             try
             {
                 string sql = string.Empty;
@@ -848,8 +1452,9 @@ namespace RetailPosRepository.Services.Repository
                 if (tranType == 1)
                 {
                     sql = code > 0 ? $"Select IsNull([Code], 0) as Value, IsNull([Name], '') as Label From RJMaster1 Where [MasterType] = {masterType} And Code = {code}" : $"Select IsNull([Code], 0) as Value, IsNull([Name], '') Label From RJMaster1 Where [MasterType] = {masterType}";
-                
-                }else if (tranType == 2)
+
+                }
+                else if (tranType == 2)
                 {
                     sql = code > 0 ? $"Select IsNull([Code], 0) as Value, IsNull([Name], '') as Label From RJUserMaster Where [UserType] = {masterType} And Code = {code}" : $"Select IsNull([Code], 0) as Value, IsNull([Name], '') Label From RJUserMaster Where [UserType] = {masterType}";
                 }
@@ -874,7 +1479,7 @@ namespace RetailPosRepository.Services.Repository
             }
             catch (Exception ex)
             {
-                return new { Status = 0, Msg = ex.Message.ToString()};
+                return new { Status = 0, Msg = ex.Message.ToString() };
             }
         }
         public async Task<dynamic> GetMasterNameToCode(int masterType, string name)
@@ -1061,7 +1666,7 @@ namespace RetailPosRepository.Services.Repository
             try
             {
                 // Delete associated product images
-                bool deleted = await DeleteProductImagesAsync(code); 
+                bool deleted = await DeleteProductImagesAsync(code);
 
                 if (!deleted)
                 {
@@ -1104,7 +1709,7 @@ namespace RetailPosRepository.Services.Repository
                 SqlParameter p12 = new SqlParameter("@p12", request.Users ?? string.Empty);
 
                 var DT1 = await _db.ResponseNew.FromSqlRaw("EXEC dbo.[sp_SaveUserMasterDet] @p1, @p2, @p3, @p4, @p5, @p6, @p7, @p8, @p9, @p10, @p11, @p12", p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12).ToListAsync();
-                
+
                 int Status = DT1[0].Status;
                 string Msg = DT1[0].Msg;
 
@@ -1137,7 +1742,7 @@ namespace RetailPosRepository.Services.Repository
                 string sql = code == 0 ? "select ISNULL(Code, 0) as Code, ISNULL(Name, '') as Name, ISNULL(Email, '') Email, ISNULL(Mobile, '') Mobile, ISNULL(UserName, '') as Username, ISNULL(Password, '') as PWD, ISNULL(Role, 0) as Role, ISNULL(Remark, '') as [Remark], ISNULL(Base64, '') as Image, ISNULL(CreationOn, '') as CreationOn, CONVERT(VARCHAR, ISNULL(CreationTime, ''), 29) as CreationTime, CASE WHEN [Status] = 2 THEN CAST(0 AS BIT) ELSE CAST(1 AS BIT) END IsActive From RJUserMaster" : $"select ISNULL(Code, 0) as Code, ISNULL(Name, '') as Name, ISNULL(Email, '') Email, ISNULL(Mobile, '') Mobile, ISNULL(UserName, '') as Username, ISNULL(Password, '') as PWD, ISNULL(Role, 0) as Role, ISNULL(Remark, '') as [Remark], ISNULL(Base64, '') as Image, ISNULL(CreationOn, '') as CreationOn, CONVERT(VARCHAR, ISNULL(CreationTime, ''), 29) as CreationTime, CASE WHEN [Status] = 2 THEN CAST(0 AS BIT) ELSE CAST(1 AS BIT) END IsActive From RJUserMaster Where Code = {code}";
                 var DT1 = await _db.GetUserMasterDetailRequests.FromSqlRaw(sql).ToListAsync();
 
-                if (DT1.Count > 0) 
+                if (DT1.Count > 0)
                 {
                     var userDetails = DT1.Select(item => new GetUserMasterDetailRequest
                     {
@@ -1176,9 +1781,9 @@ namespace RetailPosRepository.Services.Repository
                 SqlParameter p2 = new SqlParameter("@p2", 6);
                 SqlParameter p3 = new SqlParameter("p3", "Product");
                 SqlParameter p4 = new SqlParameter("p4", "Admin");
-                
+
                 var DT1 = await _db.Responses.FromSqlRaw("EXEC dbo.[sp_SaveProductsFromExcel] @p1, @p2, @p3, @p4", p1, p2, p3, p4).ToListAsync();
-                
+
                 int Status = DT1[0].Status;
                 string Msg = DT1[0].Msg;
 
@@ -1422,7 +2027,7 @@ namespace RetailPosRepository.Services.Repository
             try
             {
                 var baseUrl = $"{_httpContextAccessor.HttpContext.Request.Scheme}://{_httpContextAccessor.HttpContext.Request.Host}";
-                
+
                 string sql = @"SELECT A.Code AS Code, A.Name AS Name, '' AS Image From RJMaster1 A WHERE A.MasterType = 5 AND (A.DeactiveMaster IS NULL OR A.DeactiveMaster = 0) ORDER BY A.[Name]";
 
                 var categories = await _db.RawCategories.FromSqlRaw(sql).ToListAsync();
@@ -1458,7 +2063,7 @@ namespace RetailPosRepository.Services.Repository
             try
             {
                 var baseUrl = $"{_httpContextAccessor.HttpContext.Request.Scheme}://{_httpContextAccessor.HttpContext.Request.Host}";
-                
+
                 string sql = @"SELECT A.Code AS Code, A.Name AS Name, '' AS Image, ISNULL(A.Remarks, '') AS Description, CAST(100 AS FLOAT) AS Stock, ISNULL(A.D1, 0) AS Qty, ISNULL(A.D2, 0) AS Price, ISNULL(A.D3, 0) AS MinQty, CASE WHEN ISNULL(A.ProductType, 0) = 1 THEN 1 WHEN ISNULL(A.ProductType, 0) = 2 THEN 0 ELSE 1 END AS IsVeg, ISNULL(A.Barcode, '') AS Barcode, A.ParentGrp AS ParentGrp FROM RJMaster1 A WHERE A.MasterType = 6 And (A.DeactiveMaster IS NULL OR A.DeactiveMaster = 0) ORDER BY A.Name";
 
                 var products = await _db.RawProducts.FromSqlRaw(sql).ToListAsync();
@@ -1515,7 +2120,7 @@ namespace RetailPosRepository.Services.Repository
             try
             {
                 SqlParameter param0 = new("@p0", obj.Code);
-                SqlParameter param1 = new("@p1", obj.Name); 
+                SqlParameter param1 = new("@p1", obj.Name);
                 SqlParameter param2 = new("@p2", obj.Email);                          // Email
                 SqlParameter param3 = new("@p3", obj.Phone);                          // Phone
                 SqlParameter param4 = new("@p4", obj.CountryCode);                    // Country
@@ -1553,9 +2158,9 @@ namespace RetailPosRepository.Services.Repository
                 {
                     return new { Status = 1, Msg = "Success", Data = list };
                 }
-                
+
             }
-            catch(Exception ex)
+            catch (Exception ex)
             {
                 return new { Status = 1, Msg = ex.Message, Data = new List<GetCustomerDet>() };
             }
@@ -1618,7 +2223,7 @@ namespace RetailPosRepository.Services.Repository
                 string[] formats = { "dd-MMM-yyyy", "dd-MM-yyyy", "MM/dd/yyyy", "yyyy-MM-dd", "yyyy-MM-ddTHH:mm:ss", "yyyy-MM-ddTHH:mm:ss.fffZ" };
 
                 //!DateTime.TryParseExact(obj.Date.ToString(), formats, System.Globalization.CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out safeDate))
-        
+
                 if (string.IsNullOrEmpty(obj?.Date?.ToString()) || !DateTime.TryParseExact(obj.Date.ToString(), formats, System.Globalization.CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out safeDate))
                 {
                     // null case → आज की IST date
@@ -1845,7 +2450,7 @@ namespace RetailPosRepository.Services.Repository
         }
 
         public async Task<dynamic> GetTransactionsReportAsync(int vchType, string? startDate, string? endDate, string? customer, int? status)
-         {
+        {
             var tran = new List<TransactionReportDto>();
             try
             {
@@ -1870,7 +2475,7 @@ namespace RetailPosRepository.Services.Repository
                 }
 
                 string sql = @"SELECT ISNULL(A.[OrderId], '') as OrderId, ISNULL(A.VchCode, 0) as VchCode, ISNULL(A.[VchNo], '') as InvNo, ISNULL(CONVERT(VARCHAR, A.[Date], 106), '') as InvDt, ISNULL(A.[MasterCode1], 0) as AccCode,CASE WHEN ISNULL(A.[MasterCode1], 0) = 101 THEN 'Symbiosis Canteen Buyer' ELSE ISNULL(M.[Name], '') END AS AccName,ISNULL(CASE WHEN P.[PaymentStatus] = 'SUCCESS' THEN 'PAID' ELSE 'UNPAID' END, '') as PaymentStatus, ISNULL(A.[D5], 0) AS Amount FROM RJTran1 A LEFT JOIN RJMaster1 M ON A.MasterCode1 = M.Code LEFT JOIN PaymentTransaction P ON A.VchCode = P.VchCode WHERE A.VchType = @vchType AND (@startDate IS NULL OR CONVERT(date, A.[Date]) >= @startDate) AND (@endDate IS NULL OR CONVERT(date, A.[Date]) <= @endDate) AND (@status IS NULL OR @status = 0 OR (@status = 1 AND P.PaymentStatus = 'SUCCESS') OR (@status = 2 AND (P.[PaymentStatus] IS NOT NULL AND P.[PaymentStatus] <> 'SUCCESS'))) Order By A.VchCode Desc ";
-                tran = await _db.TransactionReportDtos.FromSqlRaw(sql,new SqlParameter("@vchType", vchType), new SqlParameter("startDate", (object)parsedDate1 ?? DBNull.Value), new SqlParameter("endDate", (object)parsedDate2 ?? DBNull.Value), new SqlParameter("@status", (object)status ?? DBNull.Value)).ToListAsync();
+                tran = await _db.TransactionReportDtos.FromSqlRaw(sql, new SqlParameter("@vchType", vchType), new SqlParameter("startDate", (object)parsedDate1 ?? DBNull.Value), new SqlParameter("endDate", (object)parsedDate2 ?? DBNull.Value), new SqlParameter("@status", (object)status ?? DBNull.Value)).ToListAsync();
 
                 if (tran != null && tran.Count > 0)
                 {
@@ -1888,10 +2493,10 @@ namespace RetailPosRepository.Services.Repository
                 }
                 else
                 {
-                    return new { Status = 0, Msg = "Data Not Found !!!"};
+                    return new { Status = 0, Msg = "Data Not Found !!!" };
                 }
-            } 
-            catch (Exception ex) 
+            }
+            catch (Exception ex)
             {
                 return new { Status = 0, Msg = ex.Message.ToString() };
             }
@@ -1902,8 +2507,8 @@ namespace RetailPosRepository.Services.Repository
             try
             {
                 string sql = @"SELECT ISNULL(CAST(SUM(A.D5) AS DECIMAL(18,2)), 0) AS TotalAmount, ISNULL(CAST(SUM(CASE WHEN P.PaymentStatus = 'SUCCESS' THEN A.D5 ELSE 0 END) AS DECIMAL(18,2)), 0) AS TotalPaid, ISNULL(CAST(SUM(CASE WHEN (P.PaymentStatus IS NULL OR P.PaymentStatus <> 'SUCCESS') THEN A.D5 ELSE 0 END) AS DECIMAL(18,2)), 0) AS TotalUnpaid, ISNULL(CAST(SUM(CASE WHEN (P.PaymentStatus IS NULL OR P.PaymentStatus <> 'SUCCESS') AND A.[Date] < GETDATE() THEN A.D5 ELSE 0 END) AS DECIMAL(18,2)), 0) AS Overdue FROM RJTran1 A LEFT JOIN PaymentTransaction P ON A.VchCode = P.VchCode LEFT JOIN RJMaster1 M ON A.MasterCode1 = M.Code WHERE A.VchType = @vchType AND (@startDate IS NULL OR CONVERT(date, A.[Date]) >= @startDate) AND (@endDate IS NULL OR CONVERT(date, A.[Date]) <= @endDate) AND (@status IS NULL OR @status = 0 OR (@status = 1 AND P.PaymentStatus = 'SUCCESS') OR (@status = 2 AND (P.PaymentStatus IS NOT NULL AND P.PaymentStatus <> 'SUCCESS')))";
-                
-                var result = await _db.ReportSummaryDtos.FromSqlRaw(sql, new SqlParameter("@vchType", vchType), new SqlParameter("@startDate", (object)startDate ?? DBNull.Value), new SqlParameter("@endDate", (object)endDate ?? DBNull.Value), new SqlParameter("@customer", (object)customer ?? DBNull.Value), new SqlParameter("@status", (object)status ?? DBNull.Value) ).FirstOrDefaultAsync();
+
+                var result = await _db.ReportSummaryDtos.FromSqlRaw(sql, new SqlParameter("@vchType", vchType), new SqlParameter("@startDate", (object)startDate ?? DBNull.Value), new SqlParameter("@endDate", (object)endDate ?? DBNull.Value), new SqlParameter("@customer", (object)customer ?? DBNull.Value), new SqlParameter("@status", (object)status ?? DBNull.Value)).FirstOrDefaultAsync();
 
                 return result;
             }
@@ -2033,9 +2638,9 @@ namespace RetailPosRepository.Services.Repository
                     return new { Status = 1, Msg = "Success", Data = dt1 };
                 }
             }
-            catch (Exception ex) 
-            { 
-                return new {Status = 0, Msg = ex.Message};
+            catch (Exception ex)
+            {
+                return new { Status = 0, Msg = ex.Message };
             }
         }
 
@@ -2129,11 +2734,11 @@ namespace RetailPosRepository.Services.Repository
                     }
                 }
             }
-            catch (Exception ex) 
-            { 
+            catch (Exception ex)
+            {
                 return new { Status = 0, Msg = ex.Message };
             }
-            return new { Status = 1, Msg = "Success" , Data = list };
+            return new { Status = 1, Msg = "Success", Data = list };
         }
 
         public async Task<int> GetOrderIdByTxnId(string txnId)

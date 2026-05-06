@@ -1,5 +1,6 @@
 ﻿using Master.Models;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using QSRAPIServices.Models;
 using Razorpay.Models;
 using System;
@@ -12,10 +13,13 @@ namespace RetailPosRepository.Services.Repository
 {
     public interface IRepository
     {
+        Task SyncLocationsAsync();
         Task<dynamic> ValidateUserAsync(string username, string password);
-        Task<Response> SaveMasterAsync(Master1 master, IFormFile image);
+        //Task<Response> SaveMasterAsync([FromForm] Master1 master, [FromForm] List<IFormFile> files, [FromForm] string variants, [FromForm] string customFields, [FromForm] string images);
+        Task<Response> SaveMasterAsync(Master1 master, List<IFormFile>? files, string? variants, string? customFields, string? images);
         Task<dynamic> GetMasterListAsync(int masterType);
         Task<dynamic> GetMasterAsync(int tranType, int masterType, int code, string? name);
+        Task<dynamic> GetProductByIdAsync(int code);
         Task SaveVariantAsync(int itemCode, ItemVariantDto v);
         //Task<dynamic> GetVariantAsync(int itemCode);
         Task<Response> SaveAddonAsync(Addon addon);
